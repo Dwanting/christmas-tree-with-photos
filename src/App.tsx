@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, Suspense } from 'react';
+import { useState, useMemo, useRef, useEffect, Suspense, useCallback } from 'react';
 import { Canvas, useFrame, extend } from '@react-three/fiber';
 import {
   OrbitControls,
@@ -42,12 +42,12 @@ const CONFIG = {
     candyColors: ['#FF0000', '#FFFFFF']
   },
   counts: {
-    foliage: 15000,
-    ornaments: 300,   // 拍立得照片数量
-    elements: 200,    // 圣诞元素数量
-    lights: 400       // 彩灯数量
+    foliage: 12000,   // 优化粒子数量以提升性能
+    ornaments: 200,   // 优化照片数量以提升性能
+    elements: 500,    // 增加圣诞元素数量填充底部
+    lights: 800       // 增加彩灯数量填充底部
   },
-  tree: { height: 22, radius: 9 }, // 树体尺寸
+  tree: { height: 32, radius: 13 }, // 增大树的尺寸 (从22x9增加到32x13)
   photos: {
     // top 属性不再需要，因为已经移入 body
     body: bodyPhotoPaths
@@ -124,25 +124,37 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
-const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+const PhotoOrnaments = ({ state, onPhotoClick, groupRef, hoveredIndex }: { state: 'CHAOS' | 'FORMED', onPhotoClick: (index: number) => void, groupRef: React.RefObject<THREE.Group>, hoveredIndex: number | null }) => {
   const textures = useTexture(CONFIG.photos.body);
   const count = CONFIG.counts.ornaments;
-  const groupRef = useRef<THREE.Group>(null);
+  const internalGroupRef = useRef<THREE.Group>(null);
+
+  // 使用传入的 ref 或内部 ref
+  const actualGroupRef = groupRef || internalGroupRef;
 
   const borderGeometry = useMemo(() => new THREE.PlaneGeometry(1.2, 1.5), []);
   const photoGeometry = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
 
   const data = useMemo(() => {
     return new Array(count).fill(0).map((_, i) => {
-      const chaosPos = new THREE.Vector3((Math.random()-0.5)*70, (Math.random()-0.5)*70, (Math.random()-0.5)*70);
+      // 让Y轴分布更偏向底部（更小的负Y值），使用大于1的幂次让更多值靠近0（对应yPos=-35底部）
+      // yRandom范围0-1，映射到-35到35，让更多值靠近0（底部）
+      const yRandom = Math.pow(Math.random(), 2.0); // 使用大于1的幂次，让更多值靠近0（底部密集）
+      const yPos = -35 + yRandom * 70; // -35（底部）到35（顶部），更多在-35附近
+      const chaosPos = new THREE.Vector3((Math.random()-0.5)*70, yPos, (Math.random()-0.5)*70);
       const h = CONFIG.tree.height; const y = (Math.random() * h) - (h / 2);
       const rBase = CONFIG.tree.radius;
       const currentRadius = (rBase * (1 - (y + (h/2)) / h)) + 0.5;
       const theta = Math.random() * Math.PI * 2;
       const targetPos = new THREE.Vector3(currentRadius * Math.cos(theta), y, currentRadius * Math.sin(theta));
 
-      const isBig = Math.random() < 0.2;
-      const baseScale = isBig ? 2.2 : 0.8 + Math.random() * 0.6;
+      // 树形状态：照片更小
+      const formedScale = 0.3 + Math.random() * 0.2; // 0.3-0.5 很小
+
+      // CHAOS状态：根据Z轴深度计算大小，越靠前（z越大）越大
+      const depthFactor = (chaosPos.z + 35) / 70; // 归一化到0-1，越靠前越大
+      const chaosScale = 1.2 + depthFactor * 2.5; // 1.2-3.7 范围，前面的图片更大
+
       const weight = 0.8 + Math.random() * 1.2;
       const borderColor = CONFIG.colors.borders[Math.floor(Math.random() * CONFIG.colors.borders.length)];
 
@@ -154,7 +166,7 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       const chaosRotation = new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
 
       return {
-        chaosPos, targetPos, scale: baseScale, weight,
+        chaosPos, targetPos, formedScale, chaosScale, weight,
         textureIndex: i % textures.length,
         borderColor,
         currentPos: chaosPos.clone(),
@@ -167,11 +179,11 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   }, [textures, count]);
 
   useFrame((stateObj, delta) => {
-    if (!groupRef.current) return;
+    if (!actualGroupRef.current) return;
     const isFormed = state === 'FORMED';
     const time = stateObj.clock.elapsedTime;
 
-    groupRef.current.children.forEach((group, i) => {
+    actualGroupRef.current.children.forEach((group, i) => {
       const objData = data[i];
       const target = isFormed ? objData.targetPos : objData.chaosPos;
 
@@ -196,21 +208,38 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   });
 
   return (
-    <group ref={groupRef}>
-      {data.map((obj, i) => (
-        <group key={i} scale={[obj.scale, obj.scale, obj.scale]} rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}>
+    <group ref={actualGroupRef}>
+      {data.map((obj, i) => {
+        const currentScale = state === 'CHAOS' ? obj.chaosScale : obj.formedScale;
+        return (
+        <group
+          key={i}
+          scale={[currentScale, currentScale, currentScale]}
+          rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPhotoClick(obj.textureIndex);
+          }}
+        >
           {/* 正面 */}
           <group position={[0, 0, 0.015]}>
             <mesh geometry={photoGeometry}>
               <meshStandardMaterial
                 map={textures[obj.textureIndex]}
                 roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
+                emissive={hoveredIndex === i ? CONFIG.colors.gold : CONFIG.colors.white}
+                emissiveMap={textures[obj.textureIndex]}
+                emissiveIntensity={hoveredIndex === i ? 1.5 : 1.0}
                 side={THREE.FrontSide}
               />
             </mesh>
             <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
+              <meshStandardMaterial
+                color={hoveredIndex === i ? CONFIG.colors.gold : obj.borderColor}
+                roughness={0.9}
+                metalness={0}
+                side={THREE.FrontSide}
+              />
             </mesh>
           </group>
           {/* 背面 */}
@@ -219,16 +248,24 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
               <meshStandardMaterial
                 map={textures[obj.textureIndex]}
                 roughness={0.5} metalness={0}
-                emissive={CONFIG.colors.white} emissiveMap={textures[obj.textureIndex]} emissiveIntensity={1.0}
+                emissive={hoveredIndex === i ? CONFIG.colors.gold : CONFIG.colors.white}
+                emissiveMap={textures[obj.textureIndex]}
+                emissiveIntensity={hoveredIndex === i ? 1.5 : 1.0}
                 side={THREE.FrontSide}
               />
             </mesh>
             <mesh geometry={borderGeometry} position={[0, -0.15, -0.01]}>
-              <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
+              <meshStandardMaterial
+                color={hoveredIndex === i ? CONFIG.colors.gold : obj.borderColor}
+                roughness={0.9}
+                metalness={0}
+                side={THREE.FrontSide}
+              />
             </mesh>
           </group>
         </group>
-      ))}
+        )
+      })}
     </group>
   );
 };
@@ -244,7 +281,11 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 
   const data = useMemo(() => {
     return new Array(count).fill(0).map(() => {
-      const chaosPos = new THREE.Vector3((Math.random()-0.5)*60, (Math.random()-0.5)*60, (Math.random()-0.5)*60);
+      // 让Y轴分布更偏向底部（更小的负Y值），使用大于1的幂次让更多值靠近0（对应yPos=-30底部）
+      // yRandom范围0-1，映射到-30到30，让更多值靠近0（底部）
+      const yRandom = Math.pow(Math.random(), 2.0); // 使用大于1的幂次，让更多值靠近0（底部密集）
+      const yPos = -30 + yRandom * 60; // -30（底部）到30（顶部），更多在-30附近
+      const chaosPos = new THREE.Vector3((Math.random()-0.5)*60, yPos, (Math.random()-0.5)*60);
       const h = CONFIG.tree.height;
       const y = (Math.random() * h) - (h / 2);
       const rBase = CONFIG.tree.radius;
@@ -296,7 +337,11 @@ const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 
   const data = useMemo(() => {
     return new Array(count).fill(0).map(() => {
-      const chaosPos = new THREE.Vector3((Math.random()-0.5)*60, (Math.random()-0.5)*60, (Math.random()-0.5)*60);
+      // 让Y轴分布更偏向底部（更小的负Y值），使用大于1的幂次让更多值靠近0（对应yPos=-30底部）
+      // yRandom范围0-1，映射到-30到30，让更多值靠近0（底部）
+      const yRandom = Math.pow(Math.random(), 2.0); // 使用大于1的幂次，让更多值靠近0（底部密集）
+      const yPos = -30 + yRandom * 60; // -30（底部）到30（顶部），更多在-30附近
+      const chaosPos = new THREE.Vector3((Math.random()-0.5)*60, yPos, (Math.random()-0.5)*60);
       const h = CONFIG.tree.height; const y = (Math.random() * h) - (h / 2); const rBase = CONFIG.tree.radius;
       const currentRadius = (rBase * (1 - (y + (h/2)) / h)) + 0.3; const theta = Math.random() * Math.PI * 2;
       const targetPos = new THREE.Vector3(currentRadius * Math.cos(theta), y, currentRadius * Math.sin(theta));
@@ -329,6 +374,192 @@ const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
     </group>
   );
 };
+
+// --- Component: Unified Particle Effect (for both tree forming and photo viewing) ---
+const ParticleEffect = ({ triggerTreeForm, isPhotoOpen, opacity = 1.0 }: { triggerTreeForm: boolean, isPhotoOpen: boolean, opacity?: number }) => {
+  const particlesRef = useRef<THREE.Points>(null);
+  const materialRef = useRef<THREE.PointsMaterial>(null);
+  const particleBatchesRef = useRef<Array<{
+    launchPos: Float32Array,
+    explosionPos: Float32Array,
+    velocities: Float32Array,
+    colors: Float32Array,
+    explosionTime: Float32Array,
+    lifetime: number,
+    startTime: number,
+    isFirework: boolean
+  }>>([]);
+  const nextSpawnTime = useRef<number>(0);
+  const [isActive, setIsActive] = useState(false);
+  const startTime = useRef<number>(0);
+
+  const createFirework = useCallback((isPhotoMode: boolean) => {
+    const count = isPhotoMode ? 400 : 600; // 照片模式增加粒子数量
+
+    // 发射阶段：从图片周围或底部向外发射
+    const launchX = isPhotoMode ? (Math.random() - 0.5) * 20 : (Math.random() - 0.5) * 30;
+    const launchY = isPhotoMode ? 5 + (Math.random() - 0.5) * 10 : -15; // 照片模式从中间发射
+    const launchZ = isPhotoMode ? 45 + Math.random() * 15 : 40 + Math.random() * 20;
+
+    // 爆炸高度
+    const explosionHeight = isPhotoMode ? launchY + 3 + Math.random() * 8 : 15 + Math.random() * 15;
+    const explosionPos = new Float32Array([launchX, explosionHeight, launchZ]);
+
+    // 发射速度
+    const launchSpeed = isPhotoMode ? 15 + Math.random() * 10 : 20 + Math.random() * 15;
+    const timeToExplode = Math.abs(explosionHeight - launchY) / launchSpeed;
+
+    const velocities = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const explosionTime = new Float32Array(count);
+
+    // 统一使用优雅的金色暖调主题，保持视觉一致性
+    const baseColors: Array<[number, number, number]> = [
+      [1.0, 0.84, 0.0], // 金色
+      [1.0, 0.95, 0.5], // 暖白
+      [1.0, 0.6, 0.2],  // 琥珀色
+      [1.0, 1.0, 0.8]   // 白金
+    ];
+
+    for (let i = 0; i < count; i++) {
+      // 爆炸后的速度方向（球形散开）
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const explosionSpeed = isPhotoMode ? (12 + Math.random() * 20) : (8 + Math.random() * 15);
+
+      velocities[i * 3] = Math.sin(phi) * Math.cos(theta) * explosionSpeed;
+      velocities[i * 3 + 1] = Math.cos(phi) * explosionSpeed * (isPhotoMode ? 0.4 : 0.3); // 照片模式更多向上
+      velocities[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * explosionSpeed;
+
+      // 随机选择颜色，照片模式有更高的亮度
+      const colorIndex = Math.floor(Math.random() * baseColors.length);
+      const [r, g, b] = baseColors[colorIndex];
+      const brightness = isPhotoMode ? 1.0 : 0.9; // 照片模式更亮
+      colors[i * 3] = r * brightness;
+      colors[i * 3 + 1] = g * brightness;
+      colors[i * 3 + 2] = b * brightness;
+
+      explosionTime[i] = timeToExplode + Math.random() * 0.15;
+    }
+
+    return {
+      launchPos: new Float32Array([launchX, launchY, launchZ]),
+      explosionPos,
+      velocities,
+      colors,
+      explosionTime,
+      lifetime: timeToExplode + (isPhotoMode ? 2.5 : 3.0), // 照片模式稍短生命周期
+      startTime: Date.now(),
+      isFirework: true
+    };
+  }, []);
+
+  // 树形成时触发单次烟花
+  useEffect(() => {
+    if (triggerTreeForm && !isPhotoOpen) {
+      setIsActive(true);
+      startTime.current = Date.now();
+      particleBatchesRef.current = [createFirework(false)];
+      setTimeout(() => setIsActive(false), 2000);
+    }
+  }, [triggerTreeForm, isPhotoOpen, createFirework]);
+
+  // 照片打开时持续发射烟花
+  useEffect(() => {
+    if (isPhotoOpen) {
+      setIsActive(true);
+      startTime.current = Date.now();
+      nextSpawnTime.current = Date.now();
+      particleBatchesRef.current = [createFirework(true)];
+    } else if (!triggerTreeForm) {
+      setIsActive(false);
+      particleBatchesRef.current = [];
+    }
+  }, [isPhotoOpen, triggerTreeForm, createFirework]);
+
+  useFrame((_state, delta) => {
+    if (!particlesRef.current || !isActive) return;
+
+    const now = Date.now();
+
+    // 照片打开时每隔0.3秒发射新烟花，最多8个同时存在（更密集的效果）
+    if (isPhotoOpen && now >= nextSpawnTime.current && particleBatchesRef.current.length < 8) {
+      particleBatchesRef.current.push(createFirework(true));
+      nextSpawnTime.current = now + 300;
+    }
+
+    // 移除超过生命周期的旧烟花
+    particleBatchesRef.current = particleBatchesRef.current.filter(
+      batch => (now - batch.startTime) / 1000 < batch.lifetime
+    );
+
+    // 计算所有粒子的位置
+    const allPositions: number[] = [];
+    const allColors: number[] = [];
+
+    particleBatchesRef.current.forEach(batch => {
+      const elapsed = (now - batch.startTime) / 1000;
+      const launchX = batch.launchPos[0];
+      const launchY = batch.launchPos[1];
+      const launchZ = batch.launchPos[2];
+      const explodeX = batch.explosionPos[0];
+      const explodeY = batch.explosionPos[1];
+      const explodeZ = batch.explosionPos[2];
+
+      const particleCount = batch.velocities.length / 3;
+      for (let i = 0; i < particleCount; i++) {
+        const tExplode = batch.explosionTime[i];
+
+        let x, y, z;
+        if (elapsed < tExplode) {
+          // 第一阶段：向上发射
+          const launchSpeed = (explodeY - launchY) / tExplode;
+          x = launchX;
+          y = launchY + launchSpeed * elapsed;
+          z = launchZ;
+        } else {
+          // 第二阶段：爆炸散开
+          const t = elapsed - tExplode;
+          if (t < 3.0) {
+            x = explodeX + batch.velocities[i * 3] * t;
+            y = explodeY + batch.velocities[i * 3 + 1] * t + 0.5 * (-12) * t * t;
+            z = explodeZ + batch.velocities[i * 3 + 2] * t;
+          } else {
+            continue;
+          }
+        }
+
+        allPositions.push(x, y, z);
+        allColors.push(batch.colors[i * 3], batch.colors[i * 3 + 1], batch.colors[i * 3 + 2]);
+      }
+    });
+
+    if (allPositions.length > 0) {
+      const geometry = particlesRef.current.geometry;
+      const posArray = new Float32Array(allPositions);
+      const colorArray = new Float32Array(allColors);
+      geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.color.needsUpdate = true;
+    }
+
+    if (materialRef.current) {
+      // 平滑过渡透明度
+      materialRef.current.opacity = MathUtils.damp(materialRef.current.opacity, opacity, 5, delta);
+    }
+  });
+
+  if (!isActive) return null;
+
+  return (
+    <points ref={particlesRef}>
+      <bufferGeometry />
+      <pointsMaterial ref={materialRef} size={isPhotoOpen ? 0.4 : 1.5} vertexColors transparent opacity={1.0} blending={THREE.AdditiveBlending} />
+    </points>
+  );
+};
+
 
 // --- Component: Top Star (No Photo, Pure Gold 3D Star) ---
 const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
@@ -379,13 +610,124 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
   );
 };
 
+
+
 // --- Main Scene Experience ---
-const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number }) => {
+const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateChange, lightboxOpacity, setLightboxOpacity }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number, handPosition: any, onLightboxStateChange: (isOpen: boolean, photoIndex: number | null) => void, lightboxOpacity: number, setLightboxOpacity: (opacity: number) => void }) => {
   const controlsRef = useRef<any>(null);
-  useFrame(() => {
+  const photoGroupRef = useRef<THREE.Group>(null);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [, setLightboxPhotoIndex] = useState<number | null>(null);
+  const hasPinchedRef = useRef(false);
+  const [fireworkTrigger, setFireworkTrigger] = useState(false);
+  const prevSceneState = useRef(sceneState);
+  const fadeOutTimerRef = useRef<number | null>(null);
+  const recentlyViewedPhotos = useRef<number[]>([]); // 记录最近查看过的照片索引
+  const MAX_RECENT_HISTORY = 10; // 最多记录10张最近查看的照片
+
+  useEffect(() => {
+    // 当从CHAOS变为FORMED时触发烟花
+    if (prevSceneState.current === 'CHAOS' && sceneState === 'FORMED') {
+      setFireworkTrigger(true);
+      setTimeout(() => setFireworkTrigger(false), 100);
+    }
+    prevSceneState.current = sceneState;
+  }, [sceneState]);
+
+  useFrame(({ camera }) => {
+    // 旋转控制 - 查看大图时停止旋转
+    const effectiveRotationSpeed = isLightboxOpen ? 0 : rotationSpeed;
     if (controlsRef.current) {
-      controlsRef.current.setAzimuthalAngle(controlsRef.current.getAzimuthalAngle() + rotationSpeed);
+      controlsRef.current.setAzimuthalAngle(controlsRef.current.getAzimuthalAngle() + effectiveRotationSpeed);
       controlsRef.current.update();
+    }
+
+    // 捏合打开照片 - 智能随机选择逻辑
+    if (handPosition && handPosition.isPinching === true && !isLightboxOpen && !hasPinchedRef.current) {
+      if (photoGroupRef.current) {
+        // 第一步：找出距离最近的前5张照片
+        const photoDistances: Array<{ index: number; distance: number; textureIndex: number }> = [];
+
+        photoGroupRef.current.children.forEach((group, i) => {
+          const distance = camera.position.distanceTo(group.position);
+          const textureIndex = i % CONFIG.photos.body.length;
+          photoDistances.push({ index: i, distance, textureIndex });
+        });
+
+        // 按距离排序，取最近的5张
+        photoDistances.sort((a, b) => a.distance - b.distance);
+        const nearestPhotos = photoDistances.slice(0, Math.min(5, photoDistances.length));
+
+        // 第二步：从最近的5张中过滤掉最近查看过的
+        let candidatePhotos = nearestPhotos.filter(
+          photo => !recentlyViewedPhotos.current.includes(photo.textureIndex)
+        );
+
+        // 如果所有最近的照片都查看过了，就使用所有最近的照片（允许重复）
+        if (candidatePhotos.length === 0) {
+          candidatePhotos = nearestPhotos;
+        }
+
+        // 第三步：从候选照片中随机选择一张（带权重，越近权重越高）
+        const totalWeight = candidatePhotos.reduce((sum, _, i) => {
+          const weight = candidatePhotos.length - i; // 越近权重越高
+          return sum + weight;
+        }, 0);
+
+        let randomValue = Math.random() * totalWeight;
+        let selectedPhoto = candidatePhotos[0];
+
+        for (let i = 0; i < candidatePhotos.length; i++) {
+          const weight = candidatePhotos.length - i;
+          randomValue -= weight;
+          if (randomValue <= 0) {
+            selectedPhoto = candidatePhotos[i];
+            break;
+          }
+        }
+
+        const textureIndex = selectedPhoto.textureIndex;
+
+        // 第四步：更新最近查看历史
+        recentlyViewedPhotos.current.push(textureIndex);
+        if (recentlyViewedPhotos.current.length > MAX_RECENT_HISTORY) {
+          recentlyViewedPhotos.current.shift(); // 移除最旧的记录
+        }
+
+        setIsLightboxOpen(true);
+        setLightboxPhotoIndex(textureIndex);
+        setLightboxOpacity(0); // 从0开始淡入
+        onLightboxStateChange(true, textureIndex);
+        hasPinchedRef.current = true;
+
+        // 清除任何待处理的淡出计时器
+        if (fadeOutTimerRef.current) {
+          clearTimeout(fadeOutTimerRef.current);
+          fadeOutTimerRef.current = null;
+        }
+
+        // 淡入动画
+        setTimeout(() => {
+          setLightboxOpacity(1);
+        }, 10);
+      }
+    }
+
+    // 松开手指关闭 Lightbox (带淡出效果) - 需要明确检查isPinching不为true
+    if (!handPosition || handPosition.isPinching !== true) {
+      if (isLightboxOpen && !fadeOutTimerRef.current) {
+        // 开始淡出动画
+        setLightboxOpacity(0);
+
+        // 400ms后真正关闭lightbox
+        fadeOutTimerRef.current = window.setTimeout(() => {
+          setIsLightboxOpen(false);
+          setLightboxPhotoIndex(null);
+          onLightboxStateChange(false, null);
+          fadeOutTimerRef.current = null;
+        }, 400);
+      }
+      hasPinchedRef.current = false;
     }
   });
 
@@ -399,19 +741,28 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
       <Environment preset="night" background={false} />
 
       <ambientLight intensity={0.4} color="#003311" />
-      <pointLight position={[30, 30, 30]} intensity={100} color={CONFIG.colors.warmLight} />
-      <pointLight position={[-30, 10, -30]} intensity={50} color={CONFIG.colors.gold} />
-      <pointLight position={[0, -20, 10]} intensity={30} color="#ffffff" />
+      <pointLight position={[30, 30, 30]} intensity={150} color={CONFIG.colors.warmLight} />
+      <pointLight position={[-30, 10, -30]} intensity={80} color={CONFIG.colors.gold} />
+      <pointLight position={[0, -20, 10]} intensity={50} color="#ffffff" />
+      {/* 聚合时额外的聚光灯效果 */}
+      {sceneState === 'FORMED' && (
+        <>
+          <spotLight position={[0, 40, 0]} angle={0.5} penumbra={0.5} intensity={200} color={CONFIG.colors.gold} target-position={[0, 0, 0]} castShadow />
+          <pointLight position={[15, 20, 15]} intensity={100} color="#FFD700" />
+          <pointLight position={[-15, 20, -15]} intensity={100} color="#FFD700" />
+        </>
+      )}
 
-      <group position={[0, -6, 0]}>
+      <group position={[0, 0, 0]}>
         <Foliage state={sceneState} />
         <Suspense fallback={null}>
-           <PhotoOrnaments state={sceneState} />
+           <PhotoOrnaments state={sceneState} onPhotoClick={() => {}} groupRef={photoGroupRef} hoveredIndex={null} />
            <ChristmasElements state={sceneState} />
            <FairyLights state={sceneState} />
            <TopStar state={sceneState} />
         </Suspense>
-        <Sparkles count={600} scale={50} size={8} speed={0.4} opacity={0.4} color={CONFIG.colors.silver} />
+        <Sparkles count={1000} scale={60} size={10} speed={0.4} opacity={0.6} color={CONFIG.colors.silver} />
+        <ParticleEffect triggerTreeForm={fireworkTrigger} isPhotoOpen={isLightboxOpen} opacity={isLightboxOpen ? lightboxOpacity : 1.0} />
       </group>
 
       <EffectComposer>
@@ -424,9 +775,11 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
 
 // --- Gesture Controller ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
+const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosition }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastGestureRef = useRef<string>('');
+  const gestureStableCountRef = useRef<number>(0);
 
   useEffect(() => {
     let gestureRecognizer: GestureRecognizer;
@@ -478,27 +831,72 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
 
             if (results.gestures.length > 0) {
               const name = results.gestures[0][0].categoryName; const score = results.gestures[0][0].score;
-              if (score > 0.4) {
-                 if (name === "Open_Palm") onGesture("CHAOS"); if (name === "Closed_Fist") onGesture("FORMED");
+
+              // 跟踪手势稳定性 - 只有当手势稳定时才触发状态改变
+              if (name === lastGestureRef.current) {
+                gestureStableCountRef.current++;
+              } else {
+                lastGestureRef.current = name;
+                gestureStableCountRef.current = 0;
+              }
+
+              if (score > 0.4 && gestureStableCountRef.current >= 3) {
+                 if (name === "Open_Palm") onGesture("CHAOS");
+                 if (name === "Closed_Fist") onGesture("FORMED");
                  if (debugMode) onStatus(`DETECTED: ${name}`);
               }
               if (results.landmarks.length > 0) {
                 const speed = (0.5 - results.landmarks[0][0].x) * 0.15;
                 onMove(Math.abs(speed) > 0.01 ? speed : 0);
+
+                // 传递食指尖端位置用于指针控制
+                const indexFingerTip = results.landmarks[0][8]; // MediaPipe index finger tip
+                const thumbTip = results.landmarks[0][4]; // MediaPipe thumb tip
+
+                // 计算捏合手势（食指和拇指的3D距离）
+                const dx = indexFingerTip.x - thumbTip.x;
+                const dy = indexFingerTip.y - thumbTip.y;
+                const dz = (indexFingerTip.z || 0) - (thumbTip.z || 0);
+                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                // 优化的捏合检测逻辑：
+                // 1. 距离必须<0.08（手指接近，阈值放宽）
+                // 2. 不能是Closed_Fist或Open_Palm（避免过渡期误触）
+                // 3. 识别分数>0.5（适中置信度）
+                // 4. 手势状态检查：只在非握拳/非张开状态时允许捏合
+                const isNotFistOrPalm = name !== "Closed_Fist" && name !== "Open_Palm";
+                const isPinching = distance < 0.08 &&
+                                   isNotFistOrPalm &&
+                                   score > 0.5;
+
+                onHandPosition({
+                  x: indexFingerTip.x,
+                  y: indexFingerTip.y,
+                  z: indexFingerTip.z || 0,
+                  visible: true,
+                  gesture: name,
+                  isPinching: isPinching === true ? true : false // 严格boolean值
+                });
               }
-            } else { onMove(0); if (debugMode) onStatus("AI READY: NO HAND"); }
+            } else {
+              onMove(0);
+              lastGestureRef.current = '';
+              gestureStableCountRef.current = 0;
+              onHandPosition({ visible: false, isPinching: false, x: 0, y: 0, z: 0, gesture: '' });
+              if (debugMode) onStatus("AI READY: NO HAND");
+            }
         }
         requestRef = requestAnimationFrame(predictWebcam);
       }
     };
     setup();
     return () => cancelAnimationFrame(requestRef);
-  }, [onGesture, onMove, onStatus, debugMode]);
+  }, [onGesture, onMove, onStatus, debugMode, onHandPosition]);
 
   return (
     <>
-      <video ref={videoRef} style={{ opacity: debugMode ? 0.6 : 0, position: 'fixed', top: 0, right: 0, width: debugMode ? '320px' : '1px', zIndex: debugMode ? 100 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} playsInline muted autoPlay />
-      <canvas ref={canvasRef} style={{ position: 'fixed', top: 0, right: 0, width: debugMode ? '320px' : '1px', height: debugMode ? 'auto' : '1px', zIndex: debugMode ? 101 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} />
+      <video ref={videoRef} style={{ opacity: debugMode ? 0.6 : 0, position: 'fixed', bottom: 0, right: 0, width: debugMode ? '200px' : '1px', zIndex: debugMode ? 100 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} playsInline muted autoPlay />
+      <canvas ref={canvasRef} style={{ position: 'fixed', bottom: 0, right: 0, width: debugMode ? '200px' : '1px', height: debugMode ? 'auto' : '1px', zIndex: debugMode ? 101 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} />
     </>
   );
 };
@@ -507,48 +905,143 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
 export default function GrandTreeApp() {
   const [sceneState, setSceneState] = useState<'CHAOS' | 'FORMED'>('CHAOS');
   const [rotationSpeed, setRotationSpeed] = useState(0);
-  const [aiStatus, setAiStatus] = useState("INITIALIZING...");
+  const [, setAiStatus] = useState("INITIALIZING...");
   const [debugMode, setDebugMode] = useState(false);
+  const [handPosition, setHandPosition] = useState({ visible: false, x: 0, y: 0, z: 0, gesture: '', isPinching: false });
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxPhotoIndex, setLightboxPhotoIndex] = useState<number | null>(null);
+  const [lightboxOpacity, setLightboxOpacity] = useState(1);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(true); // 默认状态为播放
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // 页面加载时自动播放音乐
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = 0.7; // 设置音量
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsMusicPlaying(true);
+          })
+          .catch(() => {
+            // 如果自动播放失败（浏览器限制），等待用户交互
+            setIsMusicPlaying(false);
+          });
+      }
+    }
+  }, []);
+
+  const handleLightboxStateChange = (isOpen: boolean, photoIndex: number | null) => {
+    setIsLightboxOpen(isOpen);
+    setLightboxPhotoIndex(photoIndex);
+  };
+
+  const toggleMusic = () => {
+    if (audioRef.current) {
+      if (isMusicPlaying) {
+        audioRef.current.pause();
+        setIsMusicPlaying(false);
+      } else {
+        // 播放音乐并捕获 Promise
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsMusicPlaying(true);
+            })
+            .catch((error) => {
+              console.error('Audio playback failed:', error);
+              // 浏览器可能阻止了自动播放
+              setIsMusicPlaying(false);
+            });
+        }
+      }
+    }
+  };
 
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
         <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
+            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} handPosition={handPosition} onLightboxStateChange={handleLightboxStateChange} lightboxOpacity={lightboxOpacity} setLightboxOpacity={setLightboxOpacity} />
         </Canvas>
       </div>
-      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
+      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} onHandPosition={setHandPosition} />
 
-      {/* UI - Stats */}
-      <div style={{ position: 'absolute', bottom: '30px', left: '40px', color: '#888', zIndex: 10, fontFamily: 'sans-serif', userSelect: 'none' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Memories</p>
-          <p style={{ fontSize: '24px', color: '#FFD700', fontWeight: 'bold', margin: 0 }}>
-            {CONFIG.counts.ornaments.toLocaleString()} <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>POLAROIDS</span>
-          </p>
+      {/* Lightbox Modal - 仅通过松开手指关闭 */}
+      {isLightboxOpen && lightboxPhotoIndex !== null && (
+        <div
+          style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 1000,
+            pointerEvents: 'none',
+            opacity: lightboxOpacity,
+            transition: 'opacity 0.4s ease-in-out'
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              animation: 'fadeIn 0.3s ease-in-out'
+            }}
+          >
+            <img
+              src={CONFIG.photos.body[lightboxPhotoIndex]}
+              alt={`Photo ${lightboxPhotoIndex + 1}`}
+              style={{
+                height: '75vh',
+                width: 'auto',
+                maxWidth: '90vw',
+                objectFit: 'contain',
+                borderRadius: '8px',
+                boxShadow: '0 0 80px rgba(255, 215, 0, 0.8)'
+              }}
+            />
+            {/* 提示文字 */}
+            <div style={{
+              position: 'absolute',
+              bottom: '-40px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: CONFIG.colors.gold,
+              fontSize: '14px',
+              letterSpacing: '2px',
+              textAlign: 'center',
+              whiteSpace: 'nowrap',
+              textShadow: '0 0 10px rgba(255, 215, 0, 0.5)'
+            }}>
+              松开手指关闭 / Release to close
+            </div>
+          </div>
         </div>
-        <div>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Foliage</p>
-          <p style={{ fontSize: '24px', color: '#004225', fontWeight: 'bold', margin: 0 }}>
-            {(CONFIG.counts.foliage / 1000).toFixed(0)}K <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>EMERALD NEEDLES</span>
-          </p>
-        </div>
+      )}
+
+      {/* UI - Top Greeting */}
+      <div style={{ position: 'absolute', top: '30px', left: '50%', transform: 'translateX(-50%)', color: CONFIG.colors.gold, fontSize: '28px', letterSpacing: '3px', zIndex: 10, fontFamily: 'serif', fontWeight: 'bold', textShadow: '0 0 20px rgba(255, 215, 0, 0.8)' }}>
+        Merry Christmas~
       </div>
 
-      {/* UI - Buttons */}
-      <div style={{ position: 'absolute', bottom: '30px', right: '40px', zIndex: 10, display: 'flex', gap: '10px' }}>
-        <button onClick={() => setDebugMode(!debugMode)} style={{ padding: '12px 15px', backgroundColor: debugMode ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: debugMode ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {debugMode ? 'HIDE DEBUG' : '🛠 DEBUG'}
+      {/* UI - Music and Debug Buttons (Top Right) */}
+      <div style={{ position: 'absolute', top: '30px', right: '40px', zIndex: 10, display: 'flex', gap: '12px' }}>
+        <button onClick={toggleMusic} style={{ padding: '12px 20px', backgroundColor: isMusicPlaying ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: isMusicPlaying ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)', letterSpacing: '1px' }}>
+          {isMusicPlaying ? '🎵 PAUSE' : '🎵 PLAY'}
         </button>
-        <button onClick={() => setSceneState(s => s === 'CHAOS' ? 'FORMED' : 'CHAOS')} style={{ padding: '12px 30px', backgroundColor: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 215, 0, 0.5)', color: '#FFD700', fontFamily: 'serif', fontSize: '14px', fontWeight: 'bold', letterSpacing: '3px', textTransform: 'uppercase', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {sceneState === 'CHAOS' ? 'Assemble Tree' : 'Disperse'}
+        <button onClick={() => setDebugMode(!debugMode)} style={{ padding: '12px 20px', backgroundColor: debugMode ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: debugMode ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)', letterSpacing: '1px' }}>
+           {debugMode ? 'HIDE' : 'SHOW'}
         </button>
       </div>
 
-      {/* UI - AI Status */}
-      <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', color: aiStatus.includes('ERROR') ? '#FF0000' : 'rgba(255, 215, 0, 0.4)', fontSize: '10px', letterSpacing: '2px', zIndex: 10, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px' }}>
-        {aiStatus}
-      </div>
+      {/* Background Music */}
+      <audio
+        ref={audioRef}
+        src="/BGM.mp3"
+        loop
+        preload="auto"
+      />
     </div>
   );
 }
