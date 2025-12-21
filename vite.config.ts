@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/christmas-tree/',
+  base: '/christmas-tree-with-photos/',
   server: {
-    open: '/christmas-tree/'
+    open: '/christmas-tree-with-photos/'
   }
 })
