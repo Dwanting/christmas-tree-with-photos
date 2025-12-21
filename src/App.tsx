@@ -19,9 +19,10 @@ import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tas
 // --- 动态生成照片列表 (top.jpg + 1.jpg 到 31.jpg) ---
 const TOTAL_NUMBERED_PHOTOS = 31;
 // 修改：将 top.jpg 加入到数组开头
+const asset = (p: string) => `${import.meta.env.BASE_URL}${p}`;
 const bodyPhotoPaths = [
-  '/photos/top.jpg',
-  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => `/photos/${i + 1}.jpg`)
+  asset('photos/top.jpg'),
+  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => asset(`photos/${i + 1}.jpg`))
 ];
 
 // --- 视觉配置 ---
@@ -802,7 +803,16 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosit
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
-            videoRef.current.play();
+            const el = videoRef.current;
+            const safePlay = () => {
+              const p = el.play();
+              if (p && typeof p.then === 'function') p.catch(() => {});
+            };
+            if (el.readyState >= 2) {
+              safePlay();
+            } else {
+              el.onloadedmetadata = () => safePlay();
+            }
             onStatus("AI READY: SHOW HAND");
             predictWebcam();
           }
@@ -1038,7 +1048,7 @@ export default function GrandTreeApp() {
       {/* Background Music */}
       <audio
         ref={audioRef}
-        src="/BGM.mp3"
+        src={asset('BGM.mp3')}
         loop
         preload="auto"
       />
