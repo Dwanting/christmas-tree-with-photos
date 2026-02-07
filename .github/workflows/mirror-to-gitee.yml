@@ -1,0 +1,19 @@
+name: Mirror to Gitee
+
+on:
+  push:
+    branches: [main, gh-pages]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wearerequired/git-mirror-action@v1
+        with:
+          source-repo: https://github.com/${{ github.repository }}.git
+          destination-repo: ${{ secrets.GITEE_REPO_URL }}
+          destination-ssh-private-key: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}

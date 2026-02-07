@@ -2,7 +2,6 @@ import { useState, useMemo, useRef, useEffect, Suspense, useCallback } from 'rea
 import { Canvas, useFrame, extend } from '@react-three/fiber';
 import {
   OrbitControls,
-  Environment,
   PerspectiveCamera,
   shaderMaterial,
   Float,
@@ -16,13 +15,13 @@ import { MathUtils } from 'three';
 import * as random from 'maath/random';
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
-// --- 动态生成照片列表 (top.jpg + 1.jpg 到 31.jpg) ---
-const TOTAL_NUMBERED_PHOTOS = 31;
+// --- 动态生成照片列表 (top.jpg + 1.jpg 到 N.jpg) ---
+const TOTAL_NUMBERED_PHOTOS = 34;
 // 修改：将 top.jpg 加入到数组开头
 const asset = (p: string) => `${import.meta.env.BASE_URL}${p}`;
 const bodyPhotoPaths = [
-  asset('photos/top.jpg'),
-  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => asset(`photos/${i + 1}.jpg`))
+  asset('backup_photos/top.jpg'),
+  ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => asset(`backup_photos/${i + 1}.jpg`))
 ];
 
 // --- 视觉配置 ---
@@ -125,8 +124,10 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
-const PhotoOrnaments = ({ state, onPhotoClick, groupRef, hoveredIndex }: { state: 'CHAOS' | 'FORMED', onPhotoClick: (index: number) => void, groupRef: React.RefObject<THREE.Group>, hoveredIndex: number | null }) => {
-  const textures = useTexture(CONFIG.photos.body);
+const PhotoOrnaments = ({ state, onPhotoClick, groupRef, hoveredIndex, photos }: { state: 'CHAOS' | 'FORMED', onPhotoClick: (index: number) => void, groupRef: React.RefObject<THREE.Group>, hoveredIndex: number | null, photos: string[] }) => {
+  // 安全检查：如果 photos 为空或未定义，则不加载纹理，避免崩溃
+  if (!photos || photos.length === 0) return null;
+  const textures = useTexture(photos);
   const count = CONFIG.counts.ornaments;
   const internalGroupRef = useRef<THREE.Group>(null);
 
@@ -304,7 +305,7 @@ const ChristmasElements = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       const rotationSpeed = { x: (Math.random()-0.5)*2.0, y: (Math.random()-0.5)*2.0, z: (Math.random()-0.5)*2.0 };
       return { type, chaosPos, targetPos, color, scale, currentPos: chaosPos.clone(), chaosRotation: new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI), rotationSpeed };
     });
-  }, [boxGeometry, sphereGeometry, caneGeometry]);
+  }, [count]);
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
@@ -350,7 +351,7 @@ const FairyLights = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
       const speed = 2 + Math.random() * 3;
       return { chaosPos, targetPos, color, speed, currentPos: chaosPos.clone(), timeOffset: Math.random() * 100 };
     });
-  }, []);
+  }, [count]);
 
   useFrame((stateObj, delta) => {
     if (!groupRef.current) return;
@@ -614,12 +615,13 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 
 
 // --- Main Scene Experience ---
-const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateChange, lightboxOpacity, setLightboxOpacity }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number, handPosition: any, onLightboxStateChange: (isOpen: boolean, photoIndex: number | null) => void, lightboxOpacity: number, setLightboxOpacity: (opacity: number) => void }) => {
+const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateChange, lightboxOpacity, setLightboxOpacity, photos }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number, handPosition: any, onLightboxStateChange: (isOpen: boolean, photoIndex: number | null) => void, lightboxOpacity: number, setLightboxOpacity: (opacity: number) => void, photos: string[] }) => {
   const controlsRef = useRef<any>(null);
   const photoGroupRef = useRef<THREE.Group>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [, setLightboxPhotoIndex] = useState<number | null>(null);
   const hasPinchedRef = useRef(false);
+  const pinchCooldownUntilRef = useRef(0);
   const [fireworkTrigger, setFireworkTrigger] = useState(false);
   const prevSceneState = useRef(sceneState);
   const fadeOutTimerRef = useRef<number | null>(null);
@@ -633,6 +635,7 @@ const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateCh
       setTimeout(() => setFireworkTrigger(false), 100);
     }
     prevSceneState.current = sceneState;
+    pinchCooldownUntilRef.current = Date.now() + 650;
   }, [sceneState]);
 
   useFrame(({ camera }) => {
@@ -644,14 +647,14 @@ const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateCh
     }
 
     // 捏合打开照片 - 智能随机选择逻辑
-    if (handPosition && handPosition.isPinching === true && !isLightboxOpen && !hasPinchedRef.current) {
+    if (Date.now() >= pinchCooldownUntilRef.current && handPosition && handPosition.isPinching === true && !isLightboxOpen && !hasPinchedRef.current) {
       if (photoGroupRef.current) {
         // 第一步：找出距离最近的前5张照片
         const photoDistances: Array<{ index: number; distance: number; textureIndex: number }> = [];
 
         photoGroupRef.current.children.forEach((group, i) => {
           const distance = camera.position.distanceTo(group.position);
-          const textureIndex = i % CONFIG.photos.body.length;
+          const textureIndex = i % photos.length;
           photoDistances.push({ index: i, distance, textureIndex });
         });
 
@@ -739,8 +742,8 @@ const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateCh
 
       <color attach="background" args={['#000300']} />
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-      <Environment preset="night" background={false} />
-
+      {/* <Environment preset="night" background={false} /> */}
+      
       <ambientLight intensity={0.4} color="#003311" />
       <pointLight position={[30, 30, 30]} intensity={150} color={CONFIG.colors.warmLight} />
       <pointLight position={[-30, 10, -30]} intensity={80} color={CONFIG.colors.gold} />
@@ -757,7 +760,7 @@ const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateCh
       <group position={[0, 0, 0]}>
         <Foliage state={sceneState} />
         <Suspense fallback={null}>
-           <PhotoOrnaments state={sceneState} onPhotoClick={() => {}} groupRef={photoGroupRef} hoveredIndex={null} />
+           <PhotoOrnaments state={sceneState} onPhotoClick={() => {}} groupRef={photoGroupRef} hoveredIndex={null} photos={photos} />
            <ChristmasElements state={sceneState} />
            <FairyLights state={sceneState} />
            <TopStar state={sceneState} />
@@ -775,12 +778,14 @@ const Experience = ({ sceneState, rotationSpeed, handPosition, onLightboxStateCh
 };
 
 // --- Gesture Controller ---
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosition }: any) => {
+const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosition, isLightboxOpen }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastGestureRef = useRef<string>('');
   const gestureStableCountRef = useRef<number>(0);
+  const pinchStateRef = useRef(false);
+  const pinchChangeStableCountRef = useRef(0);
+  const lastRuntimeErrorRef = useRef<string>('');
 
   useEffect(() => {
     let gestureRecognizer: GestureRecognizer;
@@ -826,23 +831,26 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosit
 
     const predictWebcam = () => {
       if (gestureRecognizer && videoRef.current && canvasRef.current) {
-        if (videoRef.current.videoWidth > 0) {
+        try {
+          if (videoRef.current.videoWidth > 0) {
             const results = gestureRecognizer.recognizeForVideo(videoRef.current, Date.now());
             const ctx = canvasRef.current.getContext("2d");
             if (ctx && debugMode) {
-                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-                canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight;
-                if (results.landmarks) for (const landmarks of results.landmarks) {
-                        const drawingUtils = new DrawingUtils(ctx);
-                        drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#FFD700", lineWidth: 2 });
-                        drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", lineWidth: 1 });
-                }
+              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+              canvasRef.current.width = videoRef.current.videoWidth; canvasRef.current.height = videoRef.current.videoHeight;
+              if (results.landmarks) for (const landmarks of results.landmarks) {
+                const drawingUtils = new DrawingUtils(ctx);
+                drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#FFD700", lineWidth: 2 });
+                drawingUtils.drawLandmarks(landmarks, { color: "#FF0000", lineWidth: 1 });
+              }
             } else if (ctx && !debugMode) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
+            let name = '';
+            let score = 0;
             if (results.gestures.length > 0) {
-              const name = results.gestures[0][0].categoryName; const score = results.gestures[0][0].score;
+              name = results.gestures[0][0].categoryName;
+              score = results.gestures[0][0].score;
 
-              // 跟踪手势稳定性 - 只有当手势稳定时才触发状态改变
               if (name === lastGestureRef.current) {
                 gestureStableCountRef.current++;
               } else {
@@ -850,52 +858,100 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosit
                 gestureStableCountRef.current = 0;
               }
 
-              if (score > 0.4 && gestureStableCountRef.current >= 3) {
-                 if (name === "Open_Palm") onGesture("CHAOS");
-                 if (name === "Closed_Fist") onGesture("FORMED");
-                 if (debugMode) onStatus(`DETECTED: ${name}`);
+              if (score > 0.35 && gestureStableCountRef.current >= 2) {
+                if (name === "Open_Palm") onGesture("CHAOS");
+                if (name === "Closed_Fist") onGesture("FORMED");
+                if (debugMode) onStatus(`DETECTED: ${name}`);
               }
-              if (results.landmarks.length > 0) {
-                const speed = (0.5 - results.landmarks[0][0].x) * 0.15;
-                onMove(Math.abs(speed) > 0.01 ? speed : 0);
+            }
 
-                // 传递食指尖端位置用于指针控制
-                const indexFingerTip = results.landmarks[0][8]; // MediaPipe index finger tip
-                const thumbTip = results.landmarks[0][4]; // MediaPipe thumb tip
+            const l = results.landmarks?.[0];
+            if (l && l.length > 0) {
+              const speed = (0.5 - l[0].x) * 0.15;
+              onMove(Math.abs(speed) > 0.01 ? speed : 0);
 
-                // 计算捏合手势（食指和拇指的3D距离）
-                const dx = indexFingerTip.x - thumbTip.x;
-                const dy = indexFingerTip.y - thumbTip.y;
-                const dz = (indexFingerTip.z || 0) - (thumbTip.z || 0);
-                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              const indexFingerTip = l[8];
+              const thumbTip = l[4];
 
-                // 优化的捏合检测逻辑：
-                // 1. 距离必须<0.08（手指接近，阈值放宽）
-                // 2. 不能是Closed_Fist或Open_Palm（避免过渡期误触）
-                // 3. 识别分数>0.5（适中置信度）
-                // 4. 手势状态检查：只在非握拳/非张开状态时允许捏合
-                const isNotFistOrPalm = name !== "Closed_Fist" && name !== "Open_Palm";
-                const isPinching = distance < 0.08 &&
-                                   isNotFistOrPalm &&
-                                   score > 0.5;
+              const dx = indexFingerTip.x - thumbTip.x;
+              const dy = indexFingerTip.y - thumbTip.y;
+              const dz = (indexFingerTip.z || 0) - (thumbTip.z || 0);
+              const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-                onHandPosition({
-                  x: indexFingerTip.x,
-                  y: indexFingerTip.y,
-                  z: indexFingerTip.z || 0,
-                  visible: true,
-                  gesture: name,
-                  isPinching: isPinching === true ? true : false // 严格boolean值
-                });
+              const wrist = l[0];
+              const palmBase = l[9] || l[5] || l[0];
+              const palmSize = Math.hypot(
+                wrist.x - palmBase.x,
+                wrist.y - palmBase.y,
+                (wrist.z || 0) - (palmBase.z || 0)
+              ) || 1e-6;
+              const opennessTipIds = [8, 12, 16, 20];
+              let tipSum = 0;
+              for (const id of opennessTipIds) {
+                const tip = l[id];
+                tipSum += Math.hypot(
+                  wrist.x - tip.x,
+                  wrist.y - tip.y,
+                  (wrist.z || 0) - (tip.z || 0)
+                );
               }
+              const openness = (tipSum / opennessTipIds.length) / palmSize;
+              const opennessOk = openness > 1.35 && openness < 2.25;
+
+              const gestureBlocksPinch = name === "Closed_Fist" || name === "Open_Palm";
+              const pinchDownThreshold = 0.072;
+              const pinchUpThreshold = 0.098;
+              const pinchingByDistance = pinchStateRef.current ? distance < pinchUpThreshold : distance < pinchDownThreshold;
+              const scoreOk = name ? score > 0.5 : true;
+              const rawPinch = !gestureBlocksPinch && scoreOk && opennessOk && pinchingByDistance;
+
+              if (gestureBlocksPinch) {
+                pinchStateRef.current = false;
+                pinchChangeStableCountRef.current = 0;
+              } else if (rawPinch === pinchStateRef.current) {
+                pinchChangeStableCountRef.current = 0;
+              } else {
+                pinchChangeStableCountRef.current++;
+                if (pinchChangeStableCountRef.current >= 2) {
+                  pinchStateRef.current = rawPinch;
+                  pinchChangeStableCountRef.current = 0;
+                }
+              }
+
+              onHandPosition({
+                x: indexFingerTip.x,
+                y: indexFingerTip.y,
+                z: indexFingerTip.z || 0,
+                visible: true,
+                gesture: name,
+                isPinching: pinchStateRef.current === true ? true : false
+              });
             } else {
               onMove(0);
-              lastGestureRef.current = '';
-              gestureStableCountRef.current = 0;
-              onHandPosition({ visible: false, isPinching: false, x: 0, y: 0, z: 0, gesture: '' });
-              if (debugMode) onStatus("AI READY: NO HAND");
+              pinchStateRef.current = false;
+              pinchChangeStableCountRef.current = 0;
+              onHandPosition({ visible: false, isPinching: false, x: 0, y: 0, z: 0, gesture: name });
+              if (results.gestures.length === 0) {
+                lastGestureRef.current = '';
+                gestureStableCountRef.current = 0;
+                if (debugMode) onStatus("AI READY: NO HAND");
+              }
             }
+          }
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          if (lastRuntimeErrorRef.current !== msg) {
+            lastRuntimeErrorRef.current = msg;
+            onStatus(`ERROR: ${msg}`);
+          }
+          onMove(0);
+          lastGestureRef.current = '';
+          gestureStableCountRef.current = 0;
+          pinchStateRef.current = false;
+          pinchChangeStableCountRef.current = 0;
+          onHandPosition({ visible: false, isPinching: false, x: 0, y: 0, z: 0, gesture: '' });
         }
+
         requestRef = requestAnimationFrame(predictWebcam);
       }
     };
@@ -905,11 +961,586 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode, onHandPosit
 
   return (
     <>
-      <video ref={videoRef} style={{ opacity: debugMode ? 0.6 : 0, position: 'fixed', bottom: 0, right: 0, width: debugMode ? '200px' : '1px', zIndex: debugMode ? 100 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} playsInline muted autoPlay />
-      <canvas ref={canvasRef} style={{ position: 'fixed', bottom: 0, right: 0, width: debugMode ? '200px' : '1px', height: debugMode ? 'auto' : '1px', zIndex: debugMode ? 101 : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} />
+      <video ref={videoRef} style={{ opacity: debugMode ? 0.6 : 0, position: 'fixed', bottom: 0, right: 0, width: debugMode ? 'min(30vw, 40vh)' : '1px', zIndex: debugMode ? (isLightboxOpen ? 1600 : 100) : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} playsInline muted autoPlay />
+      <canvas ref={canvasRef} style={{ position: 'fixed', bottom: 0, right: 0, width: debugMode ? 'min(30vw, 40vh)' : '1px', height: debugMode ? 'auto' : '1px', zIndex: debugMode ? (isLightboxOpen ? 1601 : 101) : -1, pointerEvents: 'none', transform: 'scaleX(-1)' }} />
     </>
   );
 };
+
+const ClassicFireworksBackdrop = ({ active, opacity }: { active: boolean; opacity: number }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const fireworksRef = useRef<any[]>([]);
+  const opacityRef = useRef(1);
+
+  useEffect(() => {
+    opacityRef.current = opacity;
+  }, [opacity]);
+
+  useEffect(() => {
+    if (!active) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const context = ctx;
+
+    const config = {
+      density: 160,
+      speed: 10,
+      gravity: 0.12,
+      particleSize: 1.6,
+    };
+
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    class Particle {
+      x: number;
+      y: number;
+      color: string;
+      velocity: { x: number; y: number };
+      gravity: number;
+      alpha: number;
+      decay: number;
+      size: number;
+      trail: Array<{ x: number; y: number; alpha: number }>;
+
+      constructor(x: number, y: number, color: string, velocity: { x: number; y: number }, gravity = config.gravity) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.velocity = velocity;
+        this.gravity = gravity;
+        this.alpha = 1;
+        this.decay = Math.random() * 0.02 + 0.01;
+        this.size = Math.random() * config.particleSize + config.particleSize * 0.5;
+        this.trail = [];
+      }
+
+      update() {
+        this.velocity.y += this.gravity;
+        this.x += this.velocity.x;
+        this.y += this.velocity.y;
+        this.alpha -= this.decay;
+        this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
+        if (this.trail.length > 10) this.trail.shift();
+      }
+
+      draw() {
+        context.save();
+        this.trail.forEach((point, index) => {
+          context.globalAlpha = point.alpha * (index / this.trail.length) * 0.5;
+          context.fillStyle = this.color;
+          context.fillRect(point.x, point.y, this.size * 0.5, this.size * 0.5);
+        });
+        context.restore();
+
+        context.save();
+        context.globalAlpha = this.alpha;
+        const gradient = context.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+        gradient.addColorStop(0, this.color);
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        context.fillStyle = gradient;
+        context.fillRect(this.x - this.size * 2, this.y - this.size * 2, this.size * 4, this.size * 4);
+        context.fillStyle = this.color;
+        context.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        context.restore();
+      }
+
+      isDead() {
+        return this.alpha <= 0;
+      }
+    }
+
+    class Firework {
+      x: number;
+      y: number;
+      targetY: number;
+      velocity: { x: number; y: number };
+      exploded: boolean;
+      particles: Particle[];
+      trail: Array<{ x: number; y: number }>;
+      hue: number;
+      color: string;
+
+      constructor(x: number, y: number, instantExplode = false) {
+        this.x = x;
+        this.targetY = y;
+        this.particles = [];
+        this.trail = [];
+        this.hue = Math.random() * 360;
+        this.color = `hsl(${this.hue}, 100%, 60%)`;
+
+        if (instantExplode) {
+          this.y = y;
+          this.velocity = { x: 0, y: 0 };
+          this.exploded = true;
+          this.explode();
+        } else {
+          this.y = window.innerHeight;
+          this.velocity = { x: 0, y: -config.speed };
+          this.exploded = false;
+        }
+      }
+
+      update() {
+        if (!this.exploded) {
+          this.trail.push({ x: this.x, y: this.y });
+          if (this.trail.length > 10) this.trail.shift();
+          this.velocity.y += 0.05;
+          this.y += this.velocity.y;
+          if (this.y <= this.targetY) this.explode();
+        } else {
+          this.particles = this.particles.filter(p => {
+            p.update();
+            return !p.isDead();
+          });
+        }
+      }
+
+      explode() {
+        this.exploded = true;
+        const particleCount = config.density;
+        for (let i = 0; i < particleCount; i++) {
+          const angle = (Math.PI * 2 * i) / particleCount;
+          const speed = Math.random() * 7 + 3;
+          const velocity = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+          const hue = this.hue + Math.random() * 60 - 30;
+          const color = `hsl(${hue}, 100%, ${Math.random() * 20 + 50}%)`;
+          this.particles.push(new Particle(this.x, this.y, color, velocity));
+        }
+      }
+
+      draw() {
+        if (!this.exploded) {
+          context.save();
+          this.trail.forEach((point, index) => {
+            context.globalAlpha = index / this.trail.length;
+            context.fillStyle = this.color;
+            context.fillRect(point.x - 2, point.y - 2, 4, 4);
+          });
+          context.globalAlpha = 1;
+          const gradient = context.createRadialGradient(this.x, this.y, 0, this.x, this.y, 8);
+          gradient.addColorStop(0, 'white');
+          gradient.addColorStop(1, this.color);
+          context.fillStyle = gradient;
+          context.fillRect(this.x - 3, this.y - 3, 6, 6);
+          context.restore();
+        } else {
+          this.particles.forEach(p => p.draw());
+        }
+      }
+
+      isDead() {
+        return this.exploded && this.particles.length === 0;
+      }
+    }
+
+    let lastSpawnAt = 0;
+    const spawn = () => {
+      const x = Math.random() * window.innerWidth;
+      const y = window.innerHeight * (0.15 + Math.random() * 0.6);
+      fireworksRef.current.push(new Firework(x, y, true));
+      if (fireworksRef.current.length > 14) fireworksRef.current.shift();
+    };
+
+    const animate = (t: number) => {
+      const maskAlpha = 0.15 + 0.12 * (1 - Math.min(1, opacityRef.current));
+      context.fillStyle = `rgba(5, 5, 16, ${maskAlpha})`;
+      context.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      if (t - lastSpawnAt > 180) {
+        lastSpawnAt = t;
+        spawn();
+      }
+
+      fireworksRef.current = fireworksRef.current.filter(f => {
+        f.update();
+        f.draw();
+        return !f.isDead();
+      });
+
+      rafRef.current = requestAnimationFrame(animate);
+    };
+
+    fireworksRef.current = [];
+    spawn();
+    spawn();
+    spawn();
+    rafRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      window.removeEventListener('resize', resize);
+      fireworksRef.current = [];
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  }, [active]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        opacity: Math.min(1, opacity),
+      }}
+    />
+  );
+};
+
+// --- Linear Style System ---
+const LINEAR_STYLE = {
+  glassPanel: {
+    background: 'rgba(20, 20, 20, 0.6)',
+    backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+  },
+  button: {
+    background: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    color: 'rgba(255, 255, 255, 0.6)',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    outline: 'none',
+    fontWeight: 400
+  },
+  buttonHover: {
+    background: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    color: '#fff',
+  },
+  modalOverlay: {
+    position: 'fixed' as const,
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0, 0, 0, 0.7)',
+    backdropFilter: 'blur(5px)',
+    zIndex: 2000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    animation: 'fadeIn 0.2s ease-out'
+  },
+  modalContent: {
+    background: '#161616',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '12px',
+    padding: '24px',
+    width: 'min(90vw, 600px)',
+    maxHeight: '85vh',
+    overflowY: 'auto' as const,
+    boxShadow: '0 24px 48px rgba(0, 0, 0, 0.5)',
+    color: '#fff',
+    animation: 'scaleIn 0.2s ease-out'
+  }
+};
+
+const LinearButton = ({ children, onClick, style, disabled, active }: any) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...LINEAR_STYLE.button,
+        ...(hover && !disabled ? LINEAR_STYLE.buttonHover : {}),
+        ...(active ? { background: 'rgba(255, 255, 255, 0.1)', borderColor: 'rgba(255, 255, 255, 0.3)', color: '#fff' } : {}),
+        ...(disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
+        ...style
+      }}
+    >
+      {children}
+    </button>
+  );
+};
+
+// --- Component: Editable Title ---
+const EditableTitle = () => {
+  const [title, setTitle] = useState(() => localStorage.getItem('tree_title') || 'Merry Christmas');
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('tree_title', title);
+  }, [title]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing]);
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => setIsEditing(false)}
+        onKeyDown={(e) => e.key === 'Enter' && setIsEditing(false)}
+        style={{
+          background: 'rgba(0,0,0,0.5)',
+          border: 'none',
+          borderBottom: '1px solid #FFD700',
+          color: '#FFD700',
+          fontSize: '28px',
+          fontFamily: 'serif',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          outline: 'none',
+          width: '300px',
+          zIndex: 10
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={() => setIsEditing(true)}
+      style={{
+        cursor: 'pointer',
+        color: CONFIG.colors.gold,
+        fontSize: '28px',
+        letterSpacing: '3px',
+        fontFamily: 'serif',
+        fontWeight: 'bold',
+        textShadow: '0 0 20px rgba(255, 215, 0, 0.8)',
+        zIndex: 10,
+        userSelect: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}
+      title="点击修改标题"
+    >
+      {title}
+      <span style={{ fontSize: '12px', opacity: 0.3, fontWeight: 'normal' }}>✎</span>
+    </div>
+  );
+};
+
+// --- Component: Gesture Guide Modal ---
+const GestureGuide = ({ onClose }: { onClose: () => void }) => {
+  const gestures = [
+    { icon: '🖐️', title: '五指张开', desc: 'Chaos Mode / 粒子散开' },
+    { icon: '✊', title: '握拳', desc: 'Form Tree / 聚合成树' },
+    { icon: '👌', title: '捏合 (食指+拇指)', desc: 'View Photo / 查看照片' },
+    { icon: '👋', title: '手掌左右移动', desc: 'Rotate / 旋转视角' },
+  ];
+
+  return (
+    <div style={LINEAR_STYLE.modalOverlay} onClick={onClose}>
+      <div style={LINEAR_STYLE.modalContent} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>手势操作说明</h3>
+          <span onClick={onClose} style={{ cursor: 'pointer', opacity: 0.6 }}>✕</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+          {gestures.map((g, i) => (
+            <div key={i} style={{ 
+              background: 'rgba(255,255,255,0.03)', 
+              borderRadius: '8px', 
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>{g.icon}</div>
+              <div style={{ fontWeight: 600, marginBottom: '4px', color: '#FFD700' }}>{g.title}</div>
+              <div style={{ fontSize: '12px', opacity: 0.7 }}>{g.desc}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ 
+          background: 'rgba(255, 215, 0, 0.05)', 
+          border: '1px solid rgba(255, 215, 0, 0.1)', 
+          borderRadius: '8px', 
+          padding: '16px',
+          fontSize: '13px',
+          lineHeight: '1.6',
+          color: 'rgba(255, 255, 255, 0.8)'
+        }}>
+          <div style={{ fontWeight: 600, color: '#FFD700', marginBottom: '8px' }}>💡 最佳体验贴士：</div>
+          <ul style={{ margin: 0, paddingLeft: '20px' }}>
+            <li>建议开启 <b>“显示调试”</b> 确认摄像头已正确识别手部骨骼</li>
+            <li>手掌请 <b>正对摄像头</b>，保持在画面中央，识别更准确</li>
+            <li>手势变换时请 <b>保持缓慢</b>，给 AI 一点反应时间</li>
+            <li>环境光线充足时识别效果最佳</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Component: Photo Manager ---
+const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose: () => void, onUpdate: () => void }) => {
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return;
+    setUploading(true);
+    const formData = new FormData();
+    Array.from(e.target.files).forEach(file => {
+      formData.append('photos', file);
+    });
+
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/upload`, { method: 'POST', body: formData });
+      if (res.ok) {
+        onUpdate();
+      } else {
+        alert('上传失败');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('上传出错');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDelete = async (photoUrl: string) => {
+    // 提取文件名
+    const filename = photoUrl.split('?')[0].split('/').pop();
+    if (!filename) return;
+    
+    // 检查是否为备份照片（不允许删除）
+    if (photoUrl.includes('backup_photos') || photoUrl.includes('top.jpg')) {
+      alert('系统默认照片不可删除');
+      return;
+    }
+
+    if (!confirm(`确定删除照片 ${filename} 吗？`)) return;
+
+    setDeleting(filename);
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/photos?filename=${filename}`, { method: 'DELETE' });
+      if (res.ok) {
+        onUpdate();
+      } else {
+        const data = await res.json();
+        alert(data.error || '删除失败');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('删除出错');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm('确定要重置所有照片吗？这将删除所有上传的照片并恢复默认图片。')) return;
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/reset`, { method: 'POST' });
+      if (res.ok) {
+        onUpdate();
+        alert('重置成功');
+      } else {
+        alert('重置失败');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('重置出错');
+    }
+  };
+
+  return (
+    <div style={LINEAR_STYLE.modalOverlay} onClick={onClose}>
+      <div style={LINEAR_STYLE.modalContent} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>图片管理</h3>
+          <span onClick={onClose} style={{ cursor: 'pointer', opacity: 0.6 }}>✕</span>
+        </div>
+        
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '12px' }}>
+           <label style={{ ...LINEAR_STYLE.button, flex: 1, justifyContent: 'center', padding: '12px', background: 'rgba(255, 215, 0, 0.1)', borderColor: 'rgba(255, 215, 0, 0.3)', color: '#FFD700' }}>
+             {uploading ? '正在上传...' : '＋ 上传新照片'}
+             <input type="file" multiple accept="image/*" onChange={handleUpload} style={{ display: 'none' }} disabled={uploading} />
+           </label>
+           <button 
+             onClick={handleReset}
+             style={{ ...LINEAR_STYLE.button, flex: 1, justifyContent: 'center', padding: '12px', borderColor: 'rgba(255, 255, 255, 0.2)' }}
+           >
+             ↻ 图片重置
+           </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '12px', maxHeight: '50vh', overflowY: 'auto' }}>
+          {photos.map((url, i) => {
+             const isBackup = url.includes('backup_photos') || url.includes('top.jpg');
+             return (
+              <div key={i} style={{ position: 'relative', aspectRatio: '1', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <img src={url} alt="thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {!isBackup && (
+                  <button 
+                    onClick={() => handleDelete(url)}
+                    disabled={deleting !== null}
+                    style={{
+                      position: 'absolute', top: '4px', right: '4px',
+                      background: 'rgba(0,0,0,0.6)', color: 'white',
+                      border: 'none', borderRadius: '4px',
+                      width: '24px', height: '24px',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '14px'
+                    }}
+                    title="删除"
+                  >
+                    ✕
+                  </button>
+                )}
+                {isBackup && (
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', fontSize: '10px', textAlign: 'center', padding: '2px' }}>默认</div>
+                )}
+              </div>
+             );
+          })}
+        </div>
+        
+        <div style={{ marginTop: '20px', fontSize: '12px', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
+          共 {photos.length} 张照片
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Component: Upload UI (Old - Deprecated, kept for reference but not used) ---
+// We will replace its usage directly in App
+
 
 // --- App Entry ---
 export default function GrandTreeApp() {
@@ -923,6 +1554,30 @@ export default function GrandTreeApp() {
   const [lightboxOpacity, setLightboxOpacity] = useState(1);
   const [isMusicPlaying, setIsMusicPlaying] = useState(true); // 默认状态为播放
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [showPhotoManager, setShowPhotoManager] = useState(false);
+  const [showGestureGuide, setShowGestureGuide] = useState(false);
+
+  const fetchPhotos = useCallback(() => {
+    fetch(`${import.meta.env.BASE_URL}api/photos`)
+      .then(res => res.json())
+      .then(files => {
+        if (Array.isArray(files) && files.length > 0) {
+          const timestamp = Date.now();
+          const paths = files.map(f => `${import.meta.env.BASE_URL}${f}?t=${timestamp}`);
+          setPhotos(paths);
+        } else {
+          setPhotos(bodyPhotoPaths);
+        }
+      })
+      .catch(() => {
+        setPhotos(bodyPhotoPaths);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchPhotos();
+  }, [fetchPhotos]);
 
   // 页面加载时自动播放音乐
   useEffect(() => {
@@ -972,35 +1627,93 @@ export default function GrandTreeApp() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
+      {/* 3D Scene */}
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
         <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} handPosition={handPosition} onLightboxStateChange={handleLightboxStateChange} lightboxOpacity={lightboxOpacity} setLightboxOpacity={setLightboxOpacity} />
+            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} handPosition={handPosition} onLightboxStateChange={handleLightboxStateChange} lightboxOpacity={lightboxOpacity} setLightboxOpacity={setLightboxOpacity} photos={photos} />
         </Canvas>
       </div>
-      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} onHandPosition={setHandPosition} />
+      
+      {/* Gesture Controller (Invisible/Debug) */}
+      <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} onHandPosition={setHandPosition} isLightboxOpen={isLightboxOpen} />
 
-      {/* Lightbox Modal - 仅通过松开手指关闭 */}
+      {/* Top Bar UI */}
+      <div style={{ 
+        position: 'absolute', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        height: '80px', 
+        zIndex: isLightboxOpen ? 1700 : 10, 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        padding: '0 24px', 
+        pointerEvents: 'none',
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.4), transparent)'
+      }}>
+         {/* Left: Photo Manager */}
+         <div style={{ pointerEvents: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <LinearButton onClick={toggleMusic}>
+              {isMusicPlaying ? '音乐暂停' : '音乐播放'}
+            </LinearButton>
+            <LinearButton onClick={() => setShowPhotoManager(true)}>
+              图片上传
+            </LinearButton>
+         </div>
+         
+         {/* Center: Title */}
+         <div style={{ pointerEvents: 'auto' }}>
+            <EditableTitle />
+         </div>
+         
+         {/* Right: Controls */}
+         <div style={{ pointerEvents: 'auto', display: 'flex', gap: '8px' }}>
+            <LinearButton onClick={() => setShowGestureGuide(true)}>
+              手势说明
+            </LinearButton>
+            <LinearButton onClick={() => setDebugMode(!debugMode)} active={debugMode}>
+               {debugMode ? '隐藏调试' : '展示调试'}
+            </LinearButton>
+         </div>
+      </div>
+
+      {/* Modals */}
+      {showPhotoManager && <PhotoManager photos={photos} onClose={() => setShowPhotoManager(false)} onUpdate={fetchPhotos} />}
+      {showGestureGuide && <GestureGuide onClose={() => setShowGestureGuide(false)} />}
+
+      {/* Lightbox Modal */}
       {isLightboxOpen && lightboxPhotoIndex !== null && (
         <div
           style={{
             position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
+            inset: 0,
             zIndex: 1000,
             pointerEvents: 'none',
             opacity: lightboxOpacity,
-            transition: 'opacity 0.4s ease-in-out'
+            transition: 'opacity 0.4s ease-in-out',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
         >
+          <ClassicFireworksBackdrop active={true} opacity={lightboxOpacity} />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.8) 100%)'
+            }}
+          />
           <div
             style={{
               position: 'relative',
+              zIndex: 1,
               animation: 'fadeIn 0.3s ease-in-out'
             }}
           >
             <img
-              src={CONFIG.photos.body[lightboxPhotoIndex]}
+              src={photos[lightboxPhotoIndex] || ''}
               alt={`Photo ${lightboxPhotoIndex + 1}`}
               style={{
                 height: '75vh',
@@ -1029,21 +1742,6 @@ export default function GrandTreeApp() {
           </div>
         </div>
       )}
-
-      {/* UI - Top Greeting */}
-      <div style={{ position: 'absolute', top: '30px', left: '50%', transform: 'translateX(-50%)', color: CONFIG.colors.gold, fontSize: '28px', letterSpacing: '3px', zIndex: 10, fontFamily: 'serif', fontWeight: 'bold', textShadow: '0 0 20px rgba(255, 215, 0, 0.8)' }}>
-        Merry Christmas~
-      </div>
-
-      {/* UI - Music and Debug Buttons (Top Right) */}
-      <div style={{ position: 'absolute', top: '30px', right: '40px', zIndex: 10, display: 'flex', gap: '12px' }}>
-        <button onClick={toggleMusic} style={{ padding: '12px 20px', backgroundColor: isMusicPlaying ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: isMusicPlaying ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)', letterSpacing: '1px' }}>
-          {isMusicPlaying ? '🎵 PAUSE' : '🎵 PLAY'}
-        </button>
-        <button onClick={() => setDebugMode(!debugMode)} style={{ padding: '12px 20px', backgroundColor: debugMode ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: debugMode ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)', letterSpacing: '1px' }}>
-           {debugMode ? 'HIDE' : 'SHOW'}
-        </button>
-      </div>
 
       {/* Background Music */}
       <audio

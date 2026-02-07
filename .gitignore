@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+#
+# Privacy: ignore personal photos in public/photos
+public/photos/**
+!public/photos/.gitkeep
