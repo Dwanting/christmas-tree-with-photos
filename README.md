@@ -72,14 +72,20 @@ npm run build
 项目生产构建会使用 `base: '/christmas-tree-with-photos/'`，可直接用于 `https://<user>.github.io/christmas-tree-with-photos/` 这种子路径部署。
 
 常见做法：
-1. `npm run build`
-2. 把 `dist/` 部署到 Pages（例如 gh-pages 分支，或 GitHub Actions 自动发布）
+1. 推送到 GitHub 的 `main` 分支后，会自动把 `dist/` 发布到 `gh-pages` 分支（见 `.github/workflows/publish-gh-pages-branch.yml`）
+2. 在 GitHub 仓库 Settings → Pages，把 Source 选择为 `Deploy from a branch`，分支选 `gh-pages`，目录选 `/ (root)`
 
 ### 国内访问（两种常见方案）
 1) Gitee Pages（更适合国内直连体验）
 - 在 Gitee 新建同名仓库并同步代码
-- 开启 Gitee Pages，部署目录选择 `dist/`
+- 开启 Gitee Pages，分支选择 `gh-pages`，目录选择 `/ (root)`
 - 访问地址通常为 `https://<user>.gitee.io/<repo>/`
+
+可选：自动同步到 Gitee
+- 本项目包含 GitHub Actions 同步工作流：`.github/workflows/mirror-to-gitee.yml`
+- 在 GitHub 仓库 Settings → Secrets and variables → Actions 配置两个 Secrets：
+  - `GITEE_REPO_URL`：例如 `git@gitee.com:<user>/<repo>.git`
+  - `GITEE_SSH_PRIVATE_KEY`：有该 Gitee 仓库写权限的 SSH 私钥
 
 2) 国内云存储 + CDN（访问更稳，适合传播）
 - 例如：阿里云 OSS / 腾讯云 COS + CDN

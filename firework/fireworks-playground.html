@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>烟花秀 | Fireworks Playground</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --neon-pink: #ff00ff;
+            --neon-cyan: #00ffff;
+            --neon-yellow: #ffff00;
+            --deep-purple: #0a0015;
+            --dark-blue: #050510;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            font-family: 'Noto Sans SC', sans-serif;
+            cursor: crosshair;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* Canvas */
+        #fireworksCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 控制面板 */
+        .control-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg,
+                rgba(10, 0, 21, 0.98) 0%,
+                rgba(5, 5, 16, 0.96) 100%);
+            backdrop-filter: blur(30px) saturate(180%);
+            border: 2px solid transparent;
+            background-image:
+                linear-gradient(135deg, rgba(10, 0, 21, 0.98) 0%, rgba(5, 5, 16, 0.96) 100%),
+                linear-gradient(135deg,
+                    rgba(255, 0, 255, 0.5) 0%,
+                    rgba(0, 255, 255, 0.5) 50%,
+                    rgba(255, 0, 255, 0.5) 100%);
+            background-origin: padding-box, border-box;
+            background-clip: padding-box, border-box;
+            border-radius: 24px;
+            padding: 24px 20px 20px;
+            width: 340px;
+            max-height: calc(100vh - 40px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+                        0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+                        0 0 60px rgba(255, 0, 255, 0.25),
+                        0 0 120px rgba(0, 255, 255, 0.12);
+            z-index: 1000;
+            font-family: 'Orbitron', sans-serif;
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-panel.hidden {
+            transform: translateX(calc(100% + 40px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 展开按钮（面板隐藏时显示） */
+        .expand-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 0, 255, 0.3);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(255, 0, 255, 0.5);
+            border-radius: 15px;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 999;
+            transition: all 0.3s;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(80px);
+        }
+
+        .expand-btn.show {
+            opacity: 1;
+            pointer-events: all;
+            transform: translateX(0);
+        }
+
+        .expand-btn:hover {
+            background: rgba(255, 0, 255, 0.5);
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.8);
+            transform: scale(1.1);
+        }
+
+        .expand-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--neon-pink);
+        }
+
+        /* 面板头部 */
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            flex-shrink: 0;
+        }
+
+        /* 折叠按钮 */
+        .toggle-btn {
+            background: rgba(255, 0, 255, 0.2);
+            border: 1px solid rgba(255, 0, 255, 0.5);
+            border-radius: 8px;
+            color: var(--neon-pink);
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 0, 255, 0.4);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.6);
+            transform: scale(1.1);
+        }
+
+        /* 顶部按钮区 */
+        .top-buttons {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid rgba(255, 0, 255, 0.25);
+            flex-shrink: 0;
+        }
+
+        .top-buttons .button-group {
+            margin-bottom: 10px;
+        }
+
+        .top-buttons .button-group:last-child {
+            margin-bottom: 0;
+        }
+
+        /* 可折叠内容区 */
+        .panel-content {
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex: 1;
+            min-height: 0;
+            padding-right: 8px;
+            padding-bottom: 16px;
+            margin-right: -8px;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+        }
+
+        .panel-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        /* 滚动条样式 */
+        .panel-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .panel-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            margin: 4px 0;
+        }
+
+        .panel-content::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg,
+                rgba(255, 0, 255, 0.6) 0%,
+                rgba(0, 255, 255, 0.6) 100%);
+            border-radius: 10px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.4);
+        }
+
+        .panel-content::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg,
+                rgba(255, 0, 255, 0.8) 0%,
+                rgba(0, 255, 255, 0.8) 100%);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.6);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .panel-title {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--neon-cyan);
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .control-group {
+            margin-bottom: 18px;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 24px;
+        }
+
+        .section-divider {
+            border-top: 2px solid transparent;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 0, 255, 0.4) 20%,
+                rgba(0, 255, 255, 0.4) 80%,
+                transparent 100%);
+            padding-top: 18px;
+            margin-top: 14px;
+            margin-bottom: 4px;
+            position: relative;
+        }
+
+        .section-divider::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 0, 255, 0.6) 50%,
+                transparent 100%);
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.4);
+        }
+
+        .section-label {
+            color: var(--neon-pink);
+            text-shadow: 0 0 15px rgba(255, 0, 255, 0.8);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-label::before {
+            content: '';
+            width: 4px;
+            height: 16px;
+            background: linear-gradient(180deg,
+                var(--neon-pink) 0%,
+                var(--neon-cyan) 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(255, 0, 255, 0.6);
+        }
+
+
+        .control-label {
+            display: block;
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 12px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 700;
+        }
+
+        .slider-container {
+            position: relative;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            outline: none;
+            -webkit-appearance: none;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        input[type="range"]:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(135deg,
+                rgba(255, 0, 255, 1) 0%,
+                rgba(0, 255, 255, 1) 100%);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.8),
+                        0 0 25px rgba(0, 255, 255, 0.4);
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.3);
+            box-shadow: 0 0 20px rgba(255, 0, 255, 1),
+                        0 0 35px rgba(0, 255, 255, 0.6);
+        }
+
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+        }
+
+        .slider-value {
+            position: absolute;
+            right: 0;
+            top: -28px;
+            color: var(--neon-cyan);
+            font-size: 13px;
+            font-weight: 700;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+            background: rgba(0, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        /* 按钮组 */
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 13px 20px;
+            border: 2px solid;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            letter-spacing: 1.2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-primary {
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.2);
+        }
+
+        .btn-primary:hover {
+            background: var(--neon-pink);
+            color: var(--deep-purple);
+            box-shadow: 0 0 25px rgba(255, 0, 255, 0.6),
+                        0 4px 15px rgba(255, 0, 255, 0.4);
+            transform: translateY(-3px);
+        }
+
+        .btn-secondary {
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: var(--neon-cyan);
+            color: var(--deep-purple);
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.6),
+                        0 4px 15px rgba(0, 255, 255, 0.4);
+            transform: translateY(-3px);
+        }
+
+        .btn.active {
+            background: var(--neon-pink);
+            color: var(--deep-purple);
+            box-shadow: 0 0 25px rgba(255, 0, 255, 0.8);
+            transform: scale(0.98);
+        }
+
+        .btn-special {
+            grid-column: 1 / -1;
+            border-color: var(--neon-yellow);
+            color: var(--neon-yellow);
+            box-shadow: 0 0 20px rgba(255, 255, 0, 0.3);
+            font-size: 13px;
+            font-weight: 900;
+            background: linear-gradient(135deg,
+                rgba(255, 0, 255, 0.08),
+                rgba(255, 255, 0, 0.08));
+            animation: pulse 2s ease-in-out infinite;
+            position: relative;
+        }
+
+        .btn-special::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 14px;
+            padding: 2px;
+            background: linear-gradient(45deg,
+                var(--neon-pink),
+                var(--neon-yellow),
+                var(--neon-cyan));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box,
+                          linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .btn-special:hover::after {
+            opacity: 1;
+        }
+
+        .btn-special:hover {
+            background: linear-gradient(135deg,
+                var(--neon-pink),
+                var(--neon-yellow));
+            color: var(--deep-purple);
+            box-shadow: 0 0 40px rgba(255, 255, 0, 0.8),
+                        0 6px 20px rgba(255, 255, 0, 0.4);
+            transform: translateY(-4px) scale(1.02);
+        }
+
+        .btn-special.active {
+            background: linear-gradient(135deg,
+                var(--neon-yellow),
+                var(--neon-pink));
+            color: var(--deep-purple);
+            box-shadow: 0 0 40px rgba(255, 255, 0, 1);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .btn-full {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 20px rgba(255, 255, 0, 0.3);
+            }
+            50% {
+                box-shadow: 0 0 35px rgba(255, 255, 0, 0.6);
+            }
+        }
+
+        /* 烟花类型选择器 */
+        .type-selector {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .type-btn {
+            padding: 10px 8px;
+            border: 1.5px solid rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        .type-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--neon-cyan);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 255, 255, 0.2);
+        }
+
+        .type-btn.active {
+            background: linear-gradient(135deg,
+                rgba(255, 0, 255, 0.25) 0%,
+                rgba(0, 255, 255, 0.25) 100%);
+            border-color: var(--neon-pink);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.4),
+                        inset 0 0 10px rgba(255, 0, 255, 0.1);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        /* 文字输入框样式 */
+        #textInput {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(10, 0, 21, 0.7);
+            border: 2px solid rgba(255, 0, 255, 0.4);
+            border-radius: 12px;
+            color: white;
+            font-family: 'Noto Sans SC', sans-serif;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        #textInput:focus {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.4),
+                        inset 0 2px 8px rgba(0, 0, 0, 0.4);
+            background: rgba(10, 0, 21, 0.9);
+        }
+
+        #textInput::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 13px;
+        }
+
+
+        /* 标题 */
+        .main-title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 48px;
+            font-weight: 900;
+            color: white;
+            text-shadow: 0 0 20px rgba(255, 0, 255, 0.8),
+                         0 0 40px rgba(0, 255, 255, 0.6);
+            z-index: 100;
+            animation: titleGlow 2s infinite alternate;
+            letter-spacing: 8px;
+            pointer-events: all;
+            cursor: text;
+            outline: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            transition: all 0.3s;
+        }
+
+        .main-title:hover {
+            background: rgba(255, 0, 255, 0.1);
+            text-shadow: 0 0 25px rgba(255, 0, 255, 1),
+                         0 0 50px rgba(0, 255, 255, 0.8);
+        }
+
+        .main-title:focus {
+            background: rgba(255, 0, 255, 0.2);
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+        }
+
+        @keyframes titleGlow {
+            from {
+                text-shadow: 0 0 20px rgba(255, 0, 255, 0.8),
+                             0 0 40px rgba(0, 255, 255, 0.6);
+            }
+            to {
+                text-shadow: 0 0 30px rgba(255, 0, 255, 1),
+                             0 0 60px rgba(0, 255, 255, 0.8),
+                             0 0 80px rgba(255, 255, 0, 0.4);
+            }
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .control-panel {
+                top: 10px;
+                right: 10px;
+                padding: 15px;
+                min-width: 200px;
+            }
+
+            .main-title {
+                font-size: 32px;
+                top: 20px;
+            }
+
+            .panel-title {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 主标题（可编辑） -->
+    <h1 class="main-title" id="mainTitle" contenteditable="true">FIREWORKS</h1>
+
+    <!-- Canvas -->
+    <canvas id="fireworksCanvas"></canvas>
+
+    <!-- 展开按钮（面板隐藏时显示） -->
+    <div class="expand-btn" id="expandBtn">
+        <svg viewBox="0 0 24 24">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+        </svg>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="control-panel" id="controlPanel">
+        <div class="panel-header">
+            <div class="panel-title">⚡ 控制台</div>
+            <button class="toggle-btn" id="togglePanel">▶</button>
+        </div>
+
+        <!-- 按钮组置于顶部 -->
+        <div class="top-buttons">
+            <div class="button-group">
+                <button class="btn btn-special" id="allEffectsBtn">🎆 全部效果</button>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" id="autoBtn">自动模式</button>
+                <button class="btn btn-secondary" id="clearBtn">清空</button>
+            </div>
+        </div>
+
+        <!-- 可折叠的控制内容 -->
+        <div class="panel-content" id="panelContent">
+            <div class="control-group">
+                <label class="control-label">烟花类型</label>
+                <div class="type-selector">
+                    <button class="type-btn active" data-type="classic">🎆 经典</button>
+                    <button class="type-btn" data-type="fountain">⛲ 喷泉</button>
+                    <button class="type-btn" data-type="heart">💖 心形</button>
+                    <button class="type-btn" data-type="spiral">🌀 螺旋</button>
+                    <button class="type-btn" data-type="ring">⭕ 光环</button>
+                    <button class="type-btn" data-type="meteor">☄️ 流星雨</button>
+                    <button class="type-btn" data-type="double">💥 双爆</button>
+                    <button class="type-btn" data-type="star">⭐ 星星</button>
+                    <button class="type-btn" data-type="wave">🌊 波浪</button>
+                    <button class="type-btn" data-type="rainbow">🌈 彩虹</button>
+                    <button class="type-btn" data-type="cross">✨ 十字</button>
+                    <button class="type-btn" data-type="diamond">💎 钻石</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">✨ 文字烟花</label>
+                <input type="text" id="textInput" placeholder="输入想展示的文字..." maxlength="20">
+                <button class="btn btn-primary btn-full" id="textFireworkBtn">
+                    🎆 打出文字烟花
+                </button>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">粒子密度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="densityValue">100</span>
+                    <input type="range" id="density" min="50" max="300" value="100">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">发射速度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="speedValue">10</span>
+                    <input type="range" id="speed" min="5" max="20" value="10">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">重力强度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="gravityValue">0.15</span>
+                    <input type="range" id="gravity" min="0.05" max="0.3" step="0.01" value="0.15">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">粒子大小</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="particleSizeValue">3</span>
+                    <input type="range" id="particleSize" min="1" max="8" step="0.5" value="3">
+                </div>
+            </div>
+
+            <!-- 文字烟花专属参数 -->
+            <div class="control-group section-divider">
+                <label class="control-label section-label">📝 文字烟花参数</label>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">笔画粗细</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="strokeWidthValue">20</span>
+                    <input type="range" id="strokeWidth" min="10" max="50" step="1" value="20">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">火花密度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="sparkDensityValue">0.5</span>
+                    <input type="range" id="sparkDensity" min="0.1" max="1" step="0.1" value="0.5">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">火花大小</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="sparkSizeValue">2</span>
+                    <input type="range" id="sparkSize" min="1" max="5" step="0.5" value="2">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">发光强度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="glowIntensityValue">0.7</span>
+                    <input type="range" id="glowIntensity" min="0.5" max="3" step="0.1" value="0.7">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">书写速度</label>
+                <div class="slider-container">
+                    <span class="slider-value" id="writeSpeedValue">1.2</span>
+                    <input type="range" id="writeSpeed" min="0.5" max="3" step="0.1" value="1.2">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // 创建星空
+        function createStars() {
+            const starsContainer = document.getElementById('stars');
+            for (let i = 0; i < 200; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.width = Math.random() * 2 + 'px';
+                star.style.height = star.style.width;
+                star.style.animationDelay = Math.random() * 3 + 's';
+                starsContainer.appendChild(star);
+            }
+        }
+        createStars();
+
+        // 配置
+        let config = {
+            type: 'classic',
+            density: 100,
+            speed: 10,
+            gravity: 0.15,
+            autoMode: false,
+            particleSize: 3, // 粒子大小
+            // 文字烟花配置
+            textStrokeWidth: 20, // 笔画粗细（默认改为20）
+            textSparkDensity: 0.5, // 火花密度 0-1
+            textSparkSize: 2, // 火花大小
+            textGlowIntensity: 0.7, // 发光强度（默认改为0.7）
+            textWriteSpeed: 0.012, // 书写速度
+            textFadeInTime: 0, // 无渐显（固定值）
+            textDisplayTime: 300, // 展示5秒后自动渐隐（固定值，300帧 = 5秒）
+            textFadeOutTime: 90, // 渐隐1.5秒（固定值，90帧 = 1.5秒）
+            // 页面标题
+            pageTitle: 'FIREWORKS',
+            // 全部效果模式
+            allEffectsMode: false,
+            allEffectsInterval: null
+        };
+
+        // 粒子类
+        class Particle {
+            constructor(x, y, color, velocity, gravity = config.gravity) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.velocity = velocity;
+                this.gravity = gravity;
+                this.alpha = 1;
+                this.decay = Math.random() * 0.02 + 0.01;
+                this.size = Math.random() * config.particleSize + config.particleSize * 0.5;
+                this.trail = [];
+            }
+
+            update() {
+                // 普通粒子的运动逻辑
+                this.velocity.y += this.gravity;
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+                this.alpha -= this.decay;
+
+                // 添加拖尾效果
+                this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
+                if (this.trail.length > 10) {
+                    this.trail.shift();
+                }
+            }
+
+            draw() {
+                // 绘制拖尾
+                ctx.save();
+                this.trail.forEach((point, index) => {
+                    ctx.globalAlpha = point.alpha * (index / this.trail.length) * 0.5;
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(point.x, point.y, this.size * 0.5, this.size * 0.5);
+                });
+                ctx.restore();
+
+                // 绘制粒子本体（带发光效果）
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+
+                // 外发光
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(this.x - this.size * 2, this.y - this.size * 2, this.size * 4, this.size * 4);
+
+                // 核心
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+                ctx.restore();
+            }
+
+            isDead() {
+                return this.alpha <= 0;
+            }
+        }
+
+        // 火花粒子类（用于文字烟花）
+        class SparkParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                // 向外飞散的速度
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 3 + 1;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed - Math.random() * 2; // 向上的偏移
+                this.gravity = 0.1;
+                this.alpha = 1;
+                this.decay = Math.random() * 0.02 + 0.015;
+                this.size = Math.random() * config.textSparkSize + config.textSparkSize * 0.5;
+                // 金色
+                this.color = `rgba(255, ${200 + Math.random() * 55}, ${Math.random() * 100}, ${this.alpha})`;
+            }
+
+            update() {
+                this.vy += this.gravity;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= this.decay;
+                this.vx *= 0.98; // 空气阻力
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+
+                // 发光效果（使用配置的发光强度）
+                const glowRadius = this.size * 3 * config.textGlowIntensity;
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowRadius);
+                gradient.addColorStop(0, `rgba(255, 255, 200, ${this.alpha})`);
+                gradient.addColorStop(0.4, `rgba(255, 220, 100, ${this.alpha * 0.6})`);
+                gradient.addColorStop(1, 'rgba(255, 200, 100, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 核心
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            isDead() {
+                return this.alpha <= 0;
+            }
+        }
+
+        // 烟花类
+        class Firework {
+            constructor(x, y) {
+                this.x = x;
+                this.y = canvas.height;
+                this.targetY = y;
+                this.velocity = { x: 0, y: -config.speed };
+                this.exploded = false;
+                this.particles = [];
+                this.trail = [];
+
+                // 随机颜色
+                this.hue = Math.random() * 360;
+                this.color = `hsl(${this.hue}, 100%, 60%)`;
+            }
+
+            update() {
+                if (!this.exploded) {
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > 10) this.trail.shift();
+
+                    this.velocity.y += 0.05;
+                    this.y += this.velocity.y;
+
+                    if (this.y <= this.targetY) {
+                        this.explode();
+                    }
+                } else {
+                    this.particles = this.particles.filter(particle => {
+                        particle.update();
+                        return !particle.isDead();
+                    });
+                }
+            }
+
+            explode() {
+                this.exploded = true;
+
+                // 根据类型创建不同的烟花效果
+                switch (config.type) {
+                    case 'classic':
+                        this.createClassicExplosion();
+                        break;
+                    case 'fountain':
+                        this.createFountain();
+                        break;
+                    case 'heart':
+                        this.createHeart();
+                        break;
+                    case 'spiral':
+                        this.createSpiral();
+                        break;
+                    case 'ring':
+                        this.createRing();
+                        break;
+                    case 'meteor':
+                        this.createMeteor();
+                        break;
+                    case 'double':
+                        this.createDouble();
+                        break;
+                    case 'star':
+                        this.createStar();
+                        break;
+                    case 'wave':
+                        this.createWave();
+                        break;
+                    case 'rainbow':
+                        this.createRainbow();
+                        break;
+                    case 'cross':
+                        this.createCross();
+                        break;
+                    case 'diamond':
+                        this.createDiamond();
+                        break;
+                }
+            }
+
+            createClassicExplosion() {
+                const particleCount = config.density;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 * i) / particleCount;
+                    const speed = Math.random() * 5 + 2;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    const hue = this.hue + Math.random() * 60 - 30;
+                    const color = `hsl(${hue}, 100%, ${Math.random() * 20 + 50}%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+            }
+
+            createFountain() {
+                const particleCount = config.density * 1.5;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = Math.random() * Math.PI - Math.PI / 2;
+                    const speed = Math.random() * 8 + 4;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    const hue = this.hue + Math.random() * 30;
+                    const color = `hsl(${hue}, 100%, 60%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity, config.gravity * 1.5));
+                }
+            }
+
+            createHeart() {
+                const particleCount = config.density * 2;
+                for (let i = 0; i < particleCount; i++) {
+                    const t = (i / particleCount) * Math.PI * 2;
+                    const x = 16 * Math.pow(Math.sin(t), 3);
+                    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+
+                    const speed = 3;
+                    const velocity = {
+                        x: x * speed * 0.1,
+                        y: y * speed * 0.1
+                    };
+
+                    const color = `hsl(${340 + Math.random() * 20}, 100%, ${Math.random() * 20 + 50}%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity, config.gravity * 0.5));
+                }
+            }
+
+            createSpiral() {
+                const particleCount = config.density * 1.5;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 4 * i) / particleCount;
+                    const radius = (i / particleCount) * 5;
+                    const speed = 3;
+                    const velocity = {
+                        x: Math.cos(angle) * speed + Math.cos(angle) * radius * 0.5,
+                        y: Math.sin(angle) * speed + Math.sin(angle) * radius * 0.5
+                    };
+
+                    const hue = (this.hue + (i / particleCount) * 360) % 360;
+                    const color = `hsl(${hue}, 100%, 60%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+            }
+
+            createRing() {
+                const rings = 3;
+                const particlesPerRing = config.density / rings;
+
+                for (let ring = 0; ring < rings; ring++) {
+                    const ringRadius = (ring + 1) * 1.5;
+                    for (let i = 0; i < particlesPerRing; i++) {
+                        const angle = (Math.PI * 2 * i) / particlesPerRing;
+                        const velocity = {
+                            x: Math.cos(angle) * ringRadius,
+                            y: Math.sin(angle) * ringRadius
+                        };
+
+                        const hue = this.hue + ring * 40;
+                        const color = `hsl(${hue}, 100%, 60%)`;
+
+                        this.particles.push(new Particle(this.x, this.y, color, velocity));
+                    }
+                }
+            }
+
+            createMeteor() {
+                const meteorCount = 20;
+                for (let i = 0; i < meteorCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 10 + 5;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed - 5
+                    };
+
+                    const hue = this.hue + Math.random() * 60;
+                    const color = `hsl(${hue}, 100%, 70%)`;
+
+                    const particle = new Particle(this.x, this.y, color, velocity, config.gravity * 0.3);
+                    particle.size = Math.random() * 5 + config.particleSize;
+                    particle.decay = 0.005;
+
+                    this.particles.push(particle);
+                }
+            }
+
+            createDouble() {
+                // 双重爆炸：先小爆炸，然后大爆炸
+                const particleCount = config.density * 0.5;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 * i) / particleCount;
+                    const speed = Math.random() * 3 + 1;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    const hue = this.hue + Math.random() * 30;
+                    const color = `hsl(${hue}, 100%, 60%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+
+                // 延迟产生大爆炸
+                setTimeout(() => {
+                    for (let i = 0; i < particleCount * 1.5; i++) {
+                        const angle = (Math.PI * 2 * i) / (particleCount * 1.5);
+                        const speed = Math.random() * 6 + 3;
+                        const velocity = {
+                            x: Math.cos(angle) * speed,
+                            y: Math.sin(angle) * speed
+                        };
+
+                        const hue = this.hue + 180 + Math.random() * 30;
+                        const color = `hsl(${hue}, 100%, 60%)`;
+
+                        this.particles.push(new Particle(this.x, this.y, color, velocity));
+                    }
+                }, 300);
+            }
+
+            createStar() {
+                // 五角星形状
+                const points = 5;
+                const particlesPerPoint = config.density / points;
+
+                for (let point = 0; point < points; point++) {
+                    const angle = (Math.PI * 2 * point) / points - Math.PI / 2;
+
+                    for (let i = 0; i < particlesPerPoint; i++) {
+                        const distance = (i / particlesPerPoint) * 8;
+                        const spread = (i / particlesPerPoint) * 0.3;
+
+                        const velocity = {
+                            x: Math.cos(angle) * distance + (Math.random() - 0.5) * spread,
+                            y: Math.sin(angle) * distance + (Math.random() - 0.5) * spread
+                        };
+
+                        const hue = this.hue + (point * 30);
+                        const color = `hsl(${hue}, 100%, 70%)`;
+
+                        this.particles.push(new Particle(this.x, this.y, color, velocity, config.gravity * 0.5));
+                    }
+                }
+            }
+
+            createWave() {
+                // 波浪形扩散
+                const particleCount = config.density * 1.5;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 * i) / particleCount;
+                    const waveOffset = Math.sin(i * 0.5) * 2;
+                    const speed = 3 + waveOffset;
+
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    const hue = this.hue + (i / particleCount) * 120;
+                    const color = `hsl(${hue}, 100%, 60%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+            }
+
+            createRainbow() {
+                // 彩虹色环
+                const particleCount = config.density * 1.2;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 * i) / particleCount;
+                    const speed = Math.random() * 4 + 2;
+
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    // 彩虹色：按角度分配颜色
+                    const hue = (i / particleCount) * 360;
+                    const color = `hsl(${hue}, 100%, 60%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+            }
+
+            createCross() {
+                // 十字形
+                const linesPerCross = 4;
+                const particlesPerLine = config.density / linesPerCross;
+
+                for (let line = 0; line < linesPerCross; line++) {
+                    const baseAngle = (Math.PI / 2 * line);
+
+                    for (let i = 0; i < particlesPerLine; i++) {
+                        const distance = (i / particlesPerLine) * 6;
+                        const velocity = {
+                            x: Math.cos(baseAngle) * distance,
+                            y: Math.sin(baseAngle) * distance
+                        };
+
+                        const hue = this.hue + (line * 90);
+                        const color = `hsl(${hue}, 100%, 60%)`;
+
+                        this.particles.push(new Particle(this.x, this.y, color, velocity, config.gravity * 0.3));
+                    }
+                }
+            }
+
+            createDiamond() {
+                // 钻石形状（菱形）
+                const particleCount = config.density;
+                const corners = 4;
+
+                for (let i = 0; i < particleCount; i++) {
+                    const corner = Math.floor((i / particleCount) * corners);
+                    const t = (i % (particleCount / corners)) / (particleCount / corners);
+
+                    let angle;
+                    if (corner === 0) angle = -Math.PI / 2 + t * Math.PI / 2;
+                    else if (corner === 1) angle = 0 + t * Math.PI / 2;
+                    else if (corner === 2) angle = Math.PI / 2 + t * Math.PI / 2;
+                    else angle = Math.PI + t * Math.PI / 2;
+
+                    const speed = Math.random() * 3 + 2;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+
+                    const hue = this.hue + (corner * 60) + Math.random() * 30;
+                    const color = `hsl(${hue}, 100%, 70%)`;
+
+                    this.particles.push(new Particle(this.x, this.y, color, velocity));
+                }
+            }
+
+
+            draw() {
+                if (!this.exploded) {
+                    // 绘制上升阶段的拖尾
+                    ctx.save();
+                    this.trail.forEach((point, index) => {
+                        ctx.globalAlpha = index / this.trail.length;
+                        ctx.fillStyle = this.color;
+                        ctx.fillRect(point.x - 2, point.y - 2, 4, 4);
+                    });
+
+                    // 绘制火箭本体
+                    ctx.globalAlpha = 1;
+                    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 8);
+                    gradient.addColorStop(0, 'white');
+                    gradient.addColorStop(1, this.color);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(this.x - 3, this.y - 3, 6, 6);
+                    ctx.restore();
+                } else {
+                    this.particles.forEach(particle => particle.draw());
+                }
+            }
+
+            isDead() {
+                return this.exploded && this.particles.length === 0;
+            }
+        }
+
+        // 文字烟花类
+        class TextFirework {
+            constructor(text, x, y) {
+                this.text = text;
+                this.x = x;
+                this.y = y;
+                this.progress = 0; // 书写进度 0-1
+                this.sparkParticles = []; // 火花粒子
+                this.pathPoints = []; // 文字路径点
+                this.isComplete = false;
+                this.displayTime = config.textDisplayTime; // 使用配置的显示时长
+                this.alpha = config.textFadeInTime > 0 ? 0 : 1; // 如果有渐显，从0开始
+                this.fadeInTime = config.textFadeInTime; // 渐显时长（帧数）
+                this.fadeOutTime = config.textFadeOutTime; // 渐隐时长（帧数）
+                this.phase = config.textFadeInTime > 0 ? 'fadeIn' : 'writing'; // 当前阶段：fadeIn, writing, display, fadeOut
+
+                // 获取文字路径点
+                this.generatePathPoints();
+            }
+
+            generatePathPoints() {
+                // 创建临时canvas获取文字轮廓
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+
+                const fontSize = 160; // 更大的字体
+                tempCtx.font = `bold ${fontSize}px 'Noto Sans SC', Arial, sans-serif`;
+
+                const metrics = tempCtx.measureText(this.text);
+                const textWidth = metrics.width;
+
+                tempCanvas.width = textWidth + 120;
+                tempCanvas.height = fontSize + 120;
+
+                tempCtx.font = `bold ${fontSize}px 'Noto Sans SC', Arial, sans-serif`;
+                tempCtx.fillStyle = 'white';
+                tempCtx.textBaseline = 'top';
+                tempCtx.textAlign = 'left';
+                tempCtx.fillText(this.text, 60, 60);
+
+                // 获取像素数据
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const pixels = imageData.data;
+
+                // 提取更密集的点
+                const points = [];
+                const sampling = 2; // 更密集的采样
+
+                for (let y = 0; y < tempCanvas.height; y += sampling) {
+                    for (let x = 0; x < tempCanvas.width; x += sampling) {
+                        const idx = (Math.floor(y) * tempCanvas.width + Math.floor(x)) * 4;
+                        const alpha = pixels[idx + 3];
+
+                        if (alpha > 128) {
+                            points.push({
+                                x: x - tempCanvas.width / 2 + this.x,
+                                y: y - tempCanvas.height / 2 + this.y,
+                                isEdge: false
+                            });
+                        }
+                    }
+                }
+
+                this.pathPoints = points;
+            }
+
+            update() {
+                // 渐显阶段
+                if (this.phase === 'fadeIn') {
+                    if (this.fadeInTime > 0) {
+                        this.alpha = Math.min(1, this.alpha + (1 / config.textFadeInTime));
+                        this.fadeInTime--;
+                        if (this.fadeInTime <= 0) {
+                            this.alpha = 1;
+                            this.phase = 'writing';
+                        }
+                    } else {
+                        this.phase = 'writing';
+                    }
+                }
+
+                // 书写阶段
+                if (this.phase === 'writing') {
+                    // 书写动画（使用配置的书写速度）
+                    this.progress += config.textWriteSpeed;
+
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isComplete = true;
+                        this.phase = 'display';
+                    }
+
+                    // 在书写过程中生成火花粒子
+                    const visiblePointsCount = Math.floor(this.pathPoints.length * this.progress);
+                    const lastFewPoints = Math.max(0, visiblePointsCount - 50);
+
+                    // 从最近绘制的点生成火花（使用配置的火花密度）
+                    for (let i = lastFewPoints; i < visiblePointsCount; i++) {
+                        if (Math.random() < config.textSparkDensity) {
+                            const point = this.pathPoints[i];
+                            this.sparkParticles.push(new SparkParticle(point.x, point.y));
+                        }
+                    }
+                }
+
+                // 显示阶段
+                if (this.phase === 'display') {
+                    this.displayTime--;
+                    if (this.displayTime <= 0) {
+                        this.phase = 'fadeOut';
+                    }
+
+                    // 继续生成少量火花
+                    if (Math.random() < 0.03 * config.textSparkDensity) {
+                        const randomPoint = this.pathPoints[Math.floor(Math.random() * this.pathPoints.length)];
+                        this.sparkParticles.push(new SparkParticle(randomPoint.x, randomPoint.y));
+                    }
+                }
+
+                // 渐隐阶段
+                if (this.phase === 'fadeOut') {
+                    this.alpha -= 1 / this.fadeOutTime;
+                    if (this.alpha < 0) {
+                        this.alpha = 0;
+                    }
+                }
+
+                // 更新火花粒子
+                this.sparkParticles = this.sparkParticles.filter(p => {
+                    p.update();
+                    return !p.isDead();
+                });
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+
+                // 计算当前应该显示多少点
+                const visiblePointsCount = Math.floor(this.pathPoints.length * this.progress);
+
+                // 使用配置的笔画粗细和发光强度
+                const baseStrokeWidth = config.textStrokeWidth;
+                const glowIntensity = config.textGlowIntensity;
+
+                // 绘制发光文字笔画（参考图3优化颜色）
+                // 第一层：最外层亮黄色发光
+                ctx.shadowBlur = 35 * glowIntensity;
+                ctx.shadowColor = 'rgba(255, 255, 200, 0.9)';
+                for (let i = 0; i < visiblePointsCount; i++) {
+                    const point = this.pathPoints[i];
+                    const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, baseStrokeWidth * 1.3);
+                    gradient.addColorStop(0, 'rgba(255, 255, 240, 1)'); // 接近白色的亮黄
+                    gradient.addColorStop(0.2, 'rgba(255, 250, 200, 1)'); // 很亮的黄色
+                    gradient.addColorStop(0.5, 'rgba(255, 235, 150, 0.9)'); // 明黄
+                    gradient.addColorStop(0.8, 'rgba(255, 220, 100, 0.7)'); // 金黄
+                    gradient.addColorStop(1, 'rgba(255, 200, 80, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, baseStrokeWidth * 1.3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 第二层：橙色层（更鲜艳）
+                ctx.shadowBlur = 25 * glowIntensity;
+                ctx.shadowColor = 'rgba(255, 165, 60, 1)';
+                for (let i = 0; i < visiblePointsCount; i++) {
+                    const point = this.pathPoints[i];
+                    const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, baseStrokeWidth * 0.9);
+                    gradient.addColorStop(0, 'rgba(255, 220, 130, 1)'); // 浅橙
+                    gradient.addColorStop(0.3, 'rgba(255, 190, 90, 1)'); // 明橙
+                    gradient.addColorStop(0.6, 'rgba(255, 150, 60, 1)'); // 鲜橙
+                    gradient.addColorStop(0.9, 'rgba(255, 120, 40, 0.8)'); // 深橙
+                    gradient.addColorStop(1, 'rgba(255, 100, 20, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, baseStrokeWidth * 0.9, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 第三层：橙红核心
+                ctx.shadowBlur = 15 * glowIntensity;
+                ctx.shadowColor = 'rgba(255, 100, 50, 1)';
+                for (let i = 0; i < visiblePointsCount; i++) {
+                    const point = this.pathPoints[i];
+                    const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, baseStrokeWidth * 0.6);
+                    gradient.addColorStop(0, 'rgba(255, 200, 100, 1)'); // 浅橙黄
+                    gradient.addColorStop(0.3, 'rgba(255, 140, 70, 1)'); // 橙色
+                    gradient.addColorStop(0.6, 'rgba(255, 100, 50, 1)'); // 橙红
+                    gradient.addColorStop(1, 'rgba(230, 70, 40, 0.9)'); // 深红橙
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, baseStrokeWidth * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 第四层：明亮核心
+                ctx.shadowBlur = 8 * glowIntensity;
+                ctx.shadowColor = 'rgba(255, 255, 255, 1)';
+                for (let i = 0; i < visiblePointsCount; i++) {
+                    const point = this.pathPoints[i];
+                    const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, baseStrokeWidth * 0.3);
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); // 纯白
+                    gradient.addColorStop(0.4, 'rgba(255, 240, 200, 1)'); // 亮黄白
+                    gradient.addColorStop(0.7, 'rgba(255, 200, 130, 1)'); // 金黄
+                    gradient.addColorStop(1, 'rgba(255, 160, 100, 0.8)'); // 橙黄
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, baseStrokeWidth * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.shadowBlur = 0;
+                ctx.restore();
+
+                // 绘制火花粒子
+                this.sparkParticles.forEach(p => p.draw());
+            }
+
+            isDead() {
+                return this.alpha <= 0;
+            }
+        }
+
+        // 烟花数组
+        let fireworks = [];
+        let textFireworks = []; // 文字烟花单独数组
+
+        // 所有烟花类型
+        const allFireworkTypes = [
+            'classic', 'fountain', 'heart', 'spiral',
+            'ring', 'meteor', 'double', 'star',
+            'wave', 'rainbow', 'cross', 'diamond'
+        ];
+
+        // 全部效果模式 - 同时绽放所有类型
+        function startAllEffectsMode() {
+            if (config.allEffectsMode) {
+                // 停止模式
+                stopAllEffectsMode();
+                return;
+            }
+
+            config.allEffectsMode = true;
+            document.getElementById('allEffectsBtn').classList.add('active');
+            document.getElementById('allEffectsBtn').textContent = '🛑 停止效果';
+
+            // 保存原始密度
+            const originalDensity = config.density;
+            // 降低粒子密度以提升性能
+            config.density = Math.max(50, Math.floor(config.density * 0.5));
+
+            // 创建定时器，每轮同时发射所有类型的烟花
+            config.allEffectsInterval = setInterval(() => {
+                // 随机选择2-4种烟花类型同时发射（避免太密集）
+                const selectedTypes = [];
+                const typeCount = Math.floor(Math.random() * 3) + 2; // 2-4种类型
+
+                for (let i = 0; i < typeCount; i++) {
+                    const randomIndex = Math.floor(Math.random() * allFireworkTypes.length);
+                    const type = allFireworkTypes[randomIndex];
+                    if (!selectedTypes.includes(type)) {
+                        selectedTypes.push(type);
+                    }
+                }
+
+                // 为每种选中的类型发射1-2个烟花
+                selectedTypes.forEach((type, typeIndex) => {
+                    const count = Math.floor(Math.random() * 2) + 1; // 每种类型1-2个烟花
+
+                    for (let i = 0; i < count; i++) {
+                        setTimeout(() => {
+                            // 均匀分布在屏幕上
+                            const sectionWidth = canvas.width / selectedTypes.length;
+                            const minX = sectionWidth * typeIndex + 50;
+                            const maxX = sectionWidth * (typeIndex + 1) - 50;
+                            const x = minX + Math.random() * (maxX - minX);
+                            const y = Math.random() * canvas.height * 0.4 + 80;
+
+                            // 临时切换烟花类型
+                            const originalType = config.type;
+                            config.type = type;
+
+                            const firework = new Firework(x, y);
+                            fireworks.push(firework);
+
+                            // 恢复原始类型
+                            config.type = originalType;
+                        }, i * 200 + typeIndex * 100); // 交错发射
+                    }
+                });
+            }, 1500); // 每1.5秒发射一轮
+        }
+
+        function stopAllEffectsMode() {
+            config.allEffectsMode = false;
+            if (config.allEffectsInterval) {
+                clearInterval(config.allEffectsInterval);
+                config.allEffectsInterval = null;
+            }
+            document.getElementById('allEffectsBtn').classList.remove('active');
+            document.getElementById('allEffectsBtn').textContent = '🎆 全部效果';
+            // 恢复默认密度
+            document.getElementById('density').value = 100;
+            config.density = 100;
+            document.getElementById('densityValue').textContent = '100';
+        }
+
+        // 创建文字烟花的函数
+        function createTextFirework(text) {
+            if (!text || text.trim() === '') {
+                alert('请先输入要显示的文字！');
+                return;
+            }
+
+            // 清空之前的文字烟花，确保每次只显示一个
+            textFireworks = [];
+
+            // 创建新的文字烟花
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2 - 50;
+
+            const textFirework = new TextFirework(text, centerX, centerY);
+            textFireworks.push(textFirework);
+        }
+
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 检查是否有文字烟花
+            const hasTextFirework = textFireworks.length > 0;
+
+            if (hasTextFirework) {
+                // 如果有文字烟花，使用更深的半透明遮罩，让文字更清晰
+                ctx.fillStyle = 'rgba(5, 5, 16, 0.05)';
+            } else {
+                // 普通烟花使用正常遮罩
+                ctx.fillStyle = 'rgba(5, 5, 16, 0.15)';
+            }
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 更新和绘制普通烟花
+            fireworks = fireworks.filter(firework => {
+                firework.update();
+                firework.draw();
+                return !firework.isDead();
+            });
+
+            // 更新和绘制文字烟花
+            textFireworks = textFireworks.filter(tf => {
+                tf.update();
+                tf.draw();
+                return !tf.isDead();
+            });
+
+            // 自动模式
+            if (config.autoMode && Math.random() < 0.05) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height * 0.5 + 50;
+                fireworks.push(new Firework(x, y));
+            }
+        }
+
+        // 点击事件
+        canvas.addEventListener('click', (e) => {
+            const x = e.clientX;
+            const y = e.clientY;
+            fireworks.push(new Firework(x, y));
+        });
+
+        // 控制面板事件
+        document.querySelectorAll('.type-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                config.type = this.dataset.type;
+            });
+        });
+
+        document.getElementById('density').addEventListener('input', function() {
+            config.density = parseInt(this.value);
+            document.getElementById('densityValue').textContent = this.value;
+        });
+
+        document.getElementById('speed').addEventListener('input', function() {
+            config.speed = parseInt(this.value);
+            document.getElementById('speedValue').textContent = this.value;
+        });
+
+        document.getElementById('gravity').addEventListener('input', function() {
+            config.gravity = parseFloat(this.value);
+            document.getElementById('gravityValue').textContent = this.value;
+        });
+
+        document.getElementById('particleSize').addEventListener('input', function() {
+            config.particleSize = parseFloat(this.value);
+            document.getElementById('particleSizeValue').textContent = this.value;
+        });
+
+        // 文字烟花参数控制
+        document.getElementById('strokeWidth').addEventListener('input', function() {
+            config.textStrokeWidth = parseInt(this.value);
+            document.getElementById('strokeWidthValue').textContent = this.value;
+        });
+
+        document.getElementById('sparkDensity').addEventListener('input', function() {
+            config.textSparkDensity = parseFloat(this.value);
+            document.getElementById('sparkDensityValue').textContent = this.value;
+        });
+
+        document.getElementById('sparkSize').addEventListener('input', function() {
+            config.textSparkSize = parseFloat(this.value);
+            document.getElementById('sparkSizeValue').textContent = this.value;
+        });
+
+        document.getElementById('glowIntensity').addEventListener('input', function() {
+            config.textGlowIntensity = parseFloat(this.value);
+            document.getElementById('glowIntensityValue').textContent = this.value;
+        });
+
+        document.getElementById('writeSpeed').addEventListener('input', function() {
+            config.textWriteSpeed = parseFloat(this.value) * 0.01; // 转换为实际速度值
+            document.getElementById('writeSpeedValue').textContent = this.value;
+        });
+
+        // 面板折叠功能
+        document.getElementById('togglePanel').addEventListener('click', function() {
+            const panel = document.getElementById('controlPanel');
+            const expandBtn = document.getElementById('expandBtn');
+
+            panel.classList.toggle('hidden');
+            expandBtn.classList.toggle('show');
+        });
+
+        // 展开按钮功能
+        document.getElementById('expandBtn').addEventListener('click', function() {
+            const panel = document.getElementById('controlPanel');
+            const expandBtn = document.getElementById('expandBtn');
+
+            panel.classList.remove('hidden');
+            expandBtn.classList.remove('show');
+        });
+
+        // 标题可编辑功能
+        const mainTitle = document.getElementById('mainTitle');
+        mainTitle.addEventListener('blur', function() {
+            config.pageTitle = this.textContent;
+        });
+
+        mainTitle.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.blur();
+            }
+        });
+
+        document.getElementById('autoBtn').addEventListener('click', function() {
+            config.autoMode = !config.autoMode;
+            this.classList.toggle('active');
+            this.textContent = config.autoMode ? '停止自动' : '自动模式';
+
+            // 如果开启自动模式，关闭全部效果模式
+            if (config.autoMode && config.allEffectsMode) {
+                stopAllEffectsMode();
+            }
+        });
+
+        document.getElementById('allEffectsBtn').addEventListener('click', function() {
+            startAllEffectsMode();
+
+            // 如果开启全部效果模式，关闭自动模式
+            if (config.allEffectsMode && config.autoMode) {
+                config.autoMode = false;
+                document.getElementById('autoBtn').classList.remove('active');
+                document.getElementById('autoBtn').textContent = '自动模式';
+            }
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            fireworks = [];
+            textFireworks = [];
+            ctx.fillStyle = 'rgba(5, 5, 16, 1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 停止全部效果模式
+            if (config.allEffectsMode) {
+                stopAllEffectsMode();
+            }
+        });
+
+        // 文字烟花按钮点击事件
+        document.getElementById('textFireworkBtn').addEventListener('click', () => {
+            const text = document.getElementById('textInput').value;
+            createTextFirework(text);
+        });
+
+        // 支持按回车键触发文字烟花
+        document.getElementById('textInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const text = document.getElementById('textInput').value;
+                createTextFirework(text);
+            }
+        });
+
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // 启动动画
+        animate();
+
+        // 欢迎烟花秀
+        setTimeout(() => {
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    const x = canvas.width / 2 + (Math.random() - 0.5) * 400;
+                    const y = canvas.height / 3 + (Math.random() - 0.5) * 200;
+                    fireworks.push(new Firework(x, y));
+                }, i * 300);
+            }
+        }, 500);
+    </script>
+</body>
+</html>
