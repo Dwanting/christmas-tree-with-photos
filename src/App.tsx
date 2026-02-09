@@ -1498,6 +1498,7 @@ const GestureGuide = ({ onClose }: { onClose: () => void }) => {
 const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose: () => void, onUpdate: () => void }) => {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [localHintVisible, setLocalHintVisible] = useState(false);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -1520,8 +1521,8 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
 
       if (!uploadedToServer) {
         await addLocalPhotos(files);
+        setLocalHintVisible(true);
         onUpdate();
-        alert('已保存到本地：GitHub Pages 为静态网站，无法上传到服务器。');
       }
     } catch (err) {
       console.error(err);
@@ -1575,6 +1576,7 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
     try {
       await fetch(`${import.meta.env.BASE_URL}api/reset`, { method: 'POST' }).catch(() => null);
       await resetLocalPhotos();
+      setLocalHintVisible(false);
       onUpdate();
       alert('重置成功');
     } catch (err) {
@@ -1638,6 +1640,11 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
         <div style={{ marginTop: '20px', fontSize: '12px', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
           共 {photos.length} 张照片
         </div>
+        {localHintVisible && (
+          <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>
+            已保存到本地浏览器，仅自己可见
+          </div>
+        )}
       </div>
     </div>
   );
