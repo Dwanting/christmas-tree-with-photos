@@ -27,6 +27,7 @@ const bodyPhotoPaths = [
 const LOCAL_PHOTOS_DB = 'christmas-tree'
 const LOCAL_PHOTOS_STORE = 'kv'
 const LOCAL_PHOTOS_KEY = 'localPhotosV1'
+const LOCAL_HIDE_DEFAULTS_KEY = 'hideDefaultsV1'
 
 const openLocalPhotosDb = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -113,6 +114,19 @@ const deleteLocalPhoto = async (photoUrl: string): Promise<string[]> => {
 
 const resetLocalPhotos = async (): Promise<void> => {
   await localKvDelete(LOCAL_PHOTOS_KEY)
+}
+
+const getHideDefaultsFlag = async (): Promise<boolean> => {
+  try {
+    const value = await localKvGet<boolean>(LOCAL_HIDE_DEFAULTS_KEY)
+    return Boolean(value)
+  } catch {
+    return false
+  }
+}
+
+const setHideDefaultsFlag = async (hide: boolean): Promise<void> => {
+  await localKvSet(LOCAL_HIDE_DEFAULTS_KEY, hide)
 }
 
 // --- 视觉配置 ---
@@ -1495,7 +1509,19 @@ const GestureGuide = ({ onClose }: { onClose: () => void }) => {
 };
 
 // --- Component: Photo Manager ---
-const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose: () => void, onUpdate: () => void }) => {
+const PhotoManager = ({
+  photos,
+  hideDefaults,
+  onSetHideDefaults,
+  onClose,
+  onUpdate
+}: {
+  photos: string[]
+  hideDefaults: boolean
+  onSetHideDefaults: (hide: boolean) => void | Promise<void>
+  onClose: () => void
+  onUpdate: () => void
+}) => {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [localHintVisible, setLocalHintVisible] = useState(false);
@@ -1513,6 +1539,7 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
         const res = await fetch(`${import.meta.env.BASE_URL}api/upload`, { method: 'POST', body: formData });
         if (res.ok) {
           uploadedToServer = true;
+          await onSetHideDefaults(true);
           onUpdate();
         }
       } catch {
@@ -1521,6 +1548,7 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
 
       if (!uploadedToServer) {
         await addLocalPhotos(files);
+        await onSetHideDefaults(true);
         setLocalHintVisible(true);
         onUpdate();
       }
@@ -1576,6 +1604,7 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
     try {
       await fetch(`${import.meta.env.BASE_URL}api/reset`, { method: 'POST' }).catch(() => null);
       await resetLocalPhotos();
+      await onSetHideDefaults(false);
       setLocalHintVisible(false);
       onUpdate();
       alert('重置成功');
@@ -1593,7 +1622,7 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
           <span onClick={onClose} style={{ cursor: 'pointer', opacity: 0.6 }}>✕</span>
         </div>
         
-        <div style={{ marginBottom: '20px', display: 'flex', gap: '12px' }}>
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}>
            <label style={{ ...LINEAR_STYLE.button, flex: 1, justifyContent: 'center', padding: '12px', background: 'rgba(255, 215, 0, 0.1)', borderColor: 'rgba(255, 215, 0, 0.3)', color: '#FFD700' }}>
              {uploading ? '正在上传...' : '＋ 上传新照片'}
              <input type="file" multiple accept="image/*" onChange={handleUpload} style={{ display: 'none' }} disabled={uploading} />
@@ -1605,6 +1634,12 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
              ↻ 图片重置
            </button>
         </div>
+        <button
+          onClick={() => onSetHideDefaults(!hideDefaults)}
+          style={{ ...LINEAR_STYLE.button, width: '100%', justifyContent: 'center', padding: '12px', marginBottom: '20px', borderColor: 'rgba(255, 255, 255, 0.2)' }}
+        >
+          {hideDefaults ? '显示默认照片' : '隐藏默认照片'}
+        </button>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '12px', maxHeight: '50vh', overflowY: 'auto' }}>
           {photos.map((url, i) => {
@@ -1667,35 +1702,38 @@ export default function GrandTreeApp() {
   const [isMusicPlaying, setIsMusicPlaying] = useState(true); // 默认状态为播放
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [hideDefaults, setHideDefaults] = useState(false);
   const [showPhotoManager, setShowPhotoManager] = useState(false);
   const [showGestureGuide, setShowGestureGuide] = useState(false);
 
-  const fetchPhotos = useCallback(() => {
-    fetch(`${import.meta.env.BASE_URL}api/photos`)
-      .then(res => res.json())
-      .then(files => {
-        const timestamp = Date.now();
-        const serverPaths = Array.isArray(files) ? files.map(f => `${import.meta.env.BASE_URL}${f}?t=${timestamp}`) : [];
-        getLocalPhotos()
-          .then(local => {
-            const merged = [...local, ...(serverPaths.length > 0 ? serverPaths : []), ...bodyPhotoPaths]
-            const deduped = Array.from(new Set(merged)).filter(Boolean)
-            setPhotos(deduped)
-          })
-          .catch(() => {
-            const merged = [...serverPaths, ...bodyPhotoPaths]
-            setPhotos(Array.from(new Set(merged)).filter(Boolean))
-          })
-      })
-      .catch(() => {
-        getLocalPhotos()
-          .then(local => {
-            const merged = [...local, ...bodyPhotoPaths]
-            setPhotos(Array.from(new Set(merged)).filter(Boolean))
-          })
-          .catch(() => setPhotos(bodyPhotoPaths));
-      });
+  const handleSetHideDefaults = useCallback((hide: boolean) => {
+    setHideDefaults(hide);
+    setHideDefaultsFlag(hide).catch(() => null);
   }, []);
+
+  useEffect(() => {
+    getHideDefaultsFlag().then(setHideDefaults).catch(() => null);
+  }, []);
+
+  const fetchPhotos = useCallback(() => {
+    const base = import.meta.env.BASE_URL;
+    const timestamp = Date.now();
+
+    const serverPromise = fetch(`${base}api/photos`)
+      .then(res => res.json())
+      .then(files => (Array.isArray(files) ? files.map(f => `${base}${f}?t=${timestamp}`) : []))
+      .catch(() => []);
+
+    Promise.all([serverPromise, getLocalPhotos()])
+      .then(([serverPaths, local]) => {
+        const userPhotos = Array.from(new Set([...local, ...serverPaths])).filter(Boolean);
+        const next = hideDefaults && userPhotos.length > 0
+          ? userPhotos
+          : Array.from(new Set([...userPhotos, ...bodyPhotoPaths])).filter(Boolean);
+        setPhotos(next);
+      })
+      .catch(() => setPhotos(bodyPhotoPaths));
+  }, [hideDefaults]);
 
   useEffect(() => {
     fetchPhotos();
@@ -1801,7 +1839,15 @@ export default function GrandTreeApp() {
       </div>
 
       {/* Modals */}
-      {showPhotoManager && <PhotoManager photos={photos} onClose={() => setShowPhotoManager(false)} onUpdate={fetchPhotos} />}
+      {showPhotoManager && (
+        <PhotoManager
+          photos={photos}
+          hideDefaults={hideDefaults}
+          onSetHideDefaults={handleSetHideDefaults}
+          onClose={() => setShowPhotoManager(false)}
+          onUpdate={fetchPhotos}
+        />
+      )}
       {showGestureGuide && <GestureGuide onClose={() => setShowGestureGuide(false)} />}
 
       {/* Lightbox Modal */}
