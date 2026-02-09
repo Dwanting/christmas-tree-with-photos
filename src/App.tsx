@@ -24,6 +24,97 @@ const bodyPhotoPaths = [
   ...Array.from({ length: TOTAL_NUMBERED_PHOTOS }, (_, i) => asset(`backup_photos/${i + 1}.jpg`))
 ];
 
+const LOCAL_PHOTOS_DB = 'christmas-tree'
+const LOCAL_PHOTOS_STORE = 'kv'
+const LOCAL_PHOTOS_KEY = 'localPhotosV1'
+
+const openLocalPhotosDb = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(LOCAL_PHOTOS_DB, 1)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(LOCAL_PHOTOS_STORE)) {
+        db.createObjectStore(LOCAL_PHOTOS_STORE, { keyPath: 'key' })
+      }
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const localKvGet = async <T,>(key: string): Promise<T | null> => {
+  const db = await openLocalPhotosDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_PHOTOS_STORE, 'readonly')
+    const store = tx.objectStore(LOCAL_PHOTOS_STORE)
+    const req = store.get(key)
+    req.onsuccess = () => {
+      const result = req.result as { key: string; value: T } | undefined
+      resolve(result ? result.value : null)
+    }
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const localKvSet = async <T,>(key: string, value: T): Promise<void> => {
+  const db = await openLocalPhotosDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_PHOTOS_STORE, 'readwrite')
+    const store = tx.objectStore(LOCAL_PHOTOS_STORE)
+    const req = store.put({ key, value })
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const localKvDelete = async (key: string): Promise<void> => {
+  const db = await openLocalPhotosDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_PHOTOS_STORE, 'readwrite')
+    const store = tx.objectStore(LOCAL_PHOTOS_STORE)
+    const req = store.delete(key)
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const readFileAsDataUrl = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+const getLocalPhotos = async (): Promise<string[]> => {
+  try {
+    const value = await localKvGet<string[]>(LOCAL_PHOTOS_KEY)
+    return Array.isArray(value) ? value : []
+  } catch {
+    return []
+  }
+}
+
+const addLocalPhotos = async (files: File[]): Promise<string[]> => {
+  const existing = await getLocalPhotos()
+  const dataUrls = (await Promise.all(files.map(readFileAsDataUrl))).filter(Boolean)
+  const next = [...dataUrls, ...existing]
+  await localKvSet(LOCAL_PHOTOS_KEY, next)
+  return next
+}
+
+const deleteLocalPhoto = async (photoUrl: string): Promise<string[]> => {
+  const existing = await getLocalPhotos()
+  const next = existing.filter(u => u !== photoUrl)
+  await localKvSet(LOCAL_PHOTOS_KEY, next)
+  return next
+}
+
+const resetLocalPhotos = async (): Promise<void> => {
+  await localKvDelete(LOCAL_PHOTOS_KEY)
+}
+
 // --- 视觉配置 ---
 const CONFIG = {
   colors: {
@@ -1411,17 +1502,26 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
     setUploading(true);
+    const files = Array.from(e.target.files);
     const formData = new FormData();
-    Array.from(e.target.files).forEach(file => {
-      formData.append('photos', file);
-    });
+    files.forEach(file => formData.append('photos', file));
 
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/upload`, { method: 'POST', body: formData });
-      if (res.ok) {
+      let uploadedToServer = false;
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL}api/upload`, { method: 'POST', body: formData });
+        if (res.ok) {
+          uploadedToServer = true;
+          onUpdate();
+        }
+      } catch {
+        uploadedToServer = false;
+      }
+
+      if (!uploadedToServer) {
+        await addLocalPhotos(files);
         onUpdate();
-      } else {
-        alert('上传失败');
+        alert('已保存到本地：GitHub Pages 为静态网站，无法上传到服务器。');
       }
     } catch (err) {
       console.error(err);
@@ -1433,27 +1533,35 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
   };
 
   const handleDelete = async (photoUrl: string) => {
-    // 提取文件名
-    const filename = photoUrl.split('?')[0].split('/').pop();
-    if (!filename) return;
-    
     // 检查是否为备份照片（不允许删除）
     if (photoUrl.includes('backup_photos') || photoUrl.includes('top.jpg')) {
       alert('系统默认照片不可删除');
       return;
     }
 
-    if (!confirm(`确定删除照片 ${filename} 吗？`)) return;
+    if (!confirm('确定删除这张照片吗？')) return;
 
-    setDeleting(filename);
+    setDeleting(photoUrl);
     try {
+      if (photoUrl.startsWith('data:')) {
+        await deleteLocalPhoto(photoUrl);
+        onUpdate();
+        return;
+      }
+
+      const filename = photoUrl.split('?')[0].split('/').pop();
+      if (!filename) {
+        alert('删除失败');
+        return;
+      }
+
       const res = await fetch(`${import.meta.env.BASE_URL}api/photos?filename=${filename}`, { method: 'DELETE' });
       if (res.ok) {
         onUpdate();
-      } else {
-        const data = await res.json();
-        alert(data.error || '删除失败');
+        return;
       }
+      const data = await res.json();
+      alert(data.error || '删除失败');
     } catch (err) {
       console.error(err);
       alert('删除出错');
@@ -1465,13 +1573,10 @@ const PhotoManager = ({ photos, onClose, onUpdate }: { photos: string[], onClose
   const handleReset = async () => {
     if (!confirm('确定要重置所有照片吗？这将删除所有上传的照片并恢复默认图片。')) return;
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/reset`, { method: 'POST' });
-      if (res.ok) {
-        onUpdate();
-        alert('重置成功');
-      } else {
-        alert('重置失败');
-      }
+      await fetch(`${import.meta.env.BASE_URL}api/reset`, { method: 'POST' }).catch(() => null);
+      await resetLocalPhotos();
+      onUpdate();
+      alert('重置成功');
     } catch (err) {
       console.error(err);
       alert('重置出错');
@@ -1562,16 +1667,26 @@ export default function GrandTreeApp() {
     fetch(`${import.meta.env.BASE_URL}api/photos`)
       .then(res => res.json())
       .then(files => {
-        if (Array.isArray(files) && files.length > 0) {
-          const timestamp = Date.now();
-          const paths = files.map(f => `${import.meta.env.BASE_URL}${f}?t=${timestamp}`);
-          setPhotos(paths);
-        } else {
-          setPhotos(bodyPhotoPaths);
-        }
+        const timestamp = Date.now();
+        const serverPaths = Array.isArray(files) ? files.map(f => `${import.meta.env.BASE_URL}${f}?t=${timestamp}`) : [];
+        getLocalPhotos()
+          .then(local => {
+            const merged = [...local, ...(serverPaths.length > 0 ? serverPaths : []), ...bodyPhotoPaths]
+            const deduped = Array.from(new Set(merged)).filter(Boolean)
+            setPhotos(deduped)
+          })
+          .catch(() => {
+            const merged = [...serverPaths, ...bodyPhotoPaths]
+            setPhotos(Array.from(new Set(merged)).filter(Boolean))
+          })
       })
       .catch(() => {
-        setPhotos(bodyPhotoPaths);
+        getLocalPhotos()
+          .then(local => {
+            const merged = [...local, ...bodyPhotoPaths]
+            setPhotos(Array.from(new Set(merged)).filter(Boolean))
+          })
+          .catch(() => setPhotos(bodyPhotoPaths));
       });
   }, []);
 
