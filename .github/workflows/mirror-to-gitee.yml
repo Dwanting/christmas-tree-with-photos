@@ -8,12 +8,31 @@ on:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: wearerequired/git-mirror-action@v1
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          source-repo: https://github.com/${{ github.repository }}.git
-          destination-repo: ${{ secrets.GITEE_REPO_URL }}
-          destination-ssh-private-key: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+
+      - name: Trust gitee.com host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 gitee.com >> ~/.ssh/known_hosts
+
+      - name: Mirror to Gitee
+        env:
+          GITEE_REPO_URL: ${{ secrets.GITEE_REPO_URL }}
+        run: |
+          if [ -z "$GITEE_REPO_URL" ]; then
+            echo "Missing secret: GITEE_REPO_URL"
+            exit 1
+          fi
+          git remote remove gitee 2>/dev/null || true
+          git remote add gitee "$GITEE_REPO_URL"
+          git push --mirror gitee
